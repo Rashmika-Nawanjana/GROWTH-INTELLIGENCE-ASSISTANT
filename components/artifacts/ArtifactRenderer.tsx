@@ -1,13 +1,14 @@
 'use client';
 
 import React from 'react';
-import type { AgentOutput, MarketTrendsOutput, CompetitiveOutput, WinLossOutput, PricingOutput, PositioningOutput, AdjacentOutput } from '@/lib/agents/types';
+import type { AgentOutput, MarketTrendsOutput, CompetitiveOutput, WinLossOutput, PricingOutput, PositioningOutput, AdjacentOutput, MindMapOutput } from '@/lib/agents/types';
 import { TrendChart } from './TrendChart';
 import { CompetitiveMatrix } from './CompetitiveMatrix';
 import { WinLossScorecard } from './WinLossScorecard';
 import { PricingTable } from './PricingTable';
 import { PositioningGap } from './PositioningGap';
 import { ThreatHeatmap } from './ThreatHeatmap';
+import { MindMap } from './MindMap';
 
 interface Props {
   output: AgentOutput;
@@ -46,6 +47,11 @@ export function ArtifactRenderer({ output, product }: Props) {
       const o = output as AdjacentOutput;
       if (!o.threats?.length && !o.defensiveActions?.length) return null;
       return <ThreatHeatmap output={o} />;
+    }
+    case 'mind-map': {
+      const o = output as MindMapOutput;
+      if (!o.branches?.length) return null;
+      return <MindMap output={o} />;
     }
     default:
       return null;

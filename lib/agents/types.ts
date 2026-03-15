@@ -58,6 +58,7 @@ export type ArtifactType =
   | 'pricing-table'
   | 'positioning-gap'
   | 'threat-heatmap'
+  | 'mind-map'
   | 'scorecard';
 
 // ─── Domain-specific output shapes ───────────────────────────────────────────
@@ -156,6 +157,23 @@ export interface AdjacentOutput extends AgentOutput {
   overallRisk: 'high' | 'medium' | 'low';
   timeToImpact: string;    // e.g. "6-18 months"
   defensiveActions: string[];
+}
+
+// ─── Mind map output ─────────────────────────────────────────────────────────
+
+export interface MindMapNode {
+  id: string;
+  label: string;
+  detail?: string;                // short description shown on hover/expand
+  sentiment?: 'positive' | 'neutral' | 'negative' | 'warning';
+  children?: MindMapNode[];
+}
+
+export interface MindMapOutput extends AgentOutput {
+  artifactType: 'mind-map';
+  centralTopic: string;           // root node label
+  branches: MindMapNode[];        // top-level branches
+  summary: string;                // one-line overview
 }
 
 // ─── Orchestrator output ──────────────────────────────────────────────────────

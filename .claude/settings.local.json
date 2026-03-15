@@ -11,7 +11,8 @@
       "Bash(npm run:*)",
       "Bash(node -e \":*)",
       "WebFetch(domain:vercel.com)",
-      "WebFetch(domain:geist.vercel.app)"
+      "WebFetch(domain:geist.vercel.app)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

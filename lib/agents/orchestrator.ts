@@ -16,6 +16,8 @@ import type {
   ConfidenceLevel,
   IntelligenceDomain,
   ImageAttachment,
+  MindMapOutput,
+  MindMapNode,
 } from './types';
 import { scoreToLevel } from './types';
 
@@ -227,6 +229,93 @@ function buildFallbackAnswer(outputs: AgentOutput[], query: string): string {
   return `Intelligence gathered from ${outputs.length} agents covering: ${domains}. Expand the Agent Findings below for detailed insights.`;
 }
 
+// ── Mind map generator — builds a visual tree from all agent outputs ─────────
+async function generateMindMap(
+  query: string,
+  product: string,
+  outputs: AgentOutput[],
+): Promise<MindMapOutput | null> {
+  if (outputs.length === 0) return null;
+
+  const outputSummaries = outputs.map(o => ({
+    domain: o.domain,
+    confidence: o.confidence,
+    facts: o.facts.slice(0, 5),
+    interpretation: o.interpretation.slice(0, 3),
+  }));
+
+  const prompt = `You are building a strategic mind map from multi-agent intelligence findings.
+
+Product: "${product}"
+Query: "${query}"
+Agent findings:
+${JSON.stringify(outputSummaries, null, 2)}
+
+Create a mind map with 3-6 top-level branches. Each branch should have 2-4 leaf nodes.
+Every node must have a sentiment: "positive", "negative", "warning", or "neutral".
+
+CRITICAL RULES:
+- Every "id" must be a unique string (e.g. "branch-1", "leaf-1-2")
+- Every "label" MUST be a complete, meaningful phrase (3-8 words). NEVER return one-word labels like "Numerous" or "Significant" — always use full descriptive phrases like "Numerous competitors in API market"
+- Every node MUST have a non-empty label. Do not return empty or whitespace-only labels
+- Keep branch labels short (2-5 words) and child labels slightly longer (4-10 words)
+
+Return ONLY valid JSON (no markdown, no fences):
+{
+  "centralTopic": "string — the core topic (short, 3-8 words)",
+  "summary": "string — one-line overview of the map",
+  "branches": [
+    {
+      "id": "branch-1",
+      "label": "string — branch title (2-5 words)",
+      "detail": "string — one sentence branch summary",
+      "sentiment": "positive" | "neutral" | "negative" | "warning",
+      "children": [
+        {
+          "id": "leaf-1-1",
+          "label": "string — complete descriptive insight (4-10 words)",
+          "detail": "string — supporting evidence or context",
+          "sentiment": "positive" | "neutral" | "negative" | "warning"
+        }
+      ]
+    }
+  ]
+}`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.0-flash',
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: { responseMimeType: 'application/json' },
+    });
+    const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    const parsed = safeParseJson(raw);
+
+    const branches = (parsed.branches as MindMapNode[]) ?? [];
+    if (branches.length === 0) return null;
+
+    const avgScore = outputs.reduce((s, o) => s + o.confidenceScore, 0) / outputs.length;
+
+    return {
+      agentId: 'mind-map-synthesis',
+      domain: 'market-trends',
+      confidence: scoreToLevel(avgScore),
+      confidenceScore: avgScore,
+      facts: [],
+      interpretation: [],
+      sources: outputs.flatMap(o => o.sources).slice(0, 10),
+      generatedAt: new Date().toISOString(),
+      artifactType: 'mind-map',
+      centralTopic: (parsed.centralTopic as string) ?? product,
+      branches,
+      summary: (parsed.summary as string) ?? '',
+    };
+  } catch (err) {
+    console.error('[MindMap generation error]', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // ── Main orchestrator ─────────────────────────────────────────────────────────
 export async function orchestrate(
   query: string,
@@ -294,8 +383,17 @@ export async function orchestrate(
     )
     .map(r => r.value as AgentOutput);
 
-  // Step 4: Synthesise
-  const { answer, recommendations, followUps } = await synthesize(query, outputs, history, images, memoryContext);
+  // Step 4: Synthesise + generate mind map in parallel
+  const [synthesisResult, mindMapResult] = await Promise.all([
+    synthesize(query, outputs, history, images, memoryContext),
+    generateMindMap(query, product, outputs),
+  ]);
+  const { answer, recommendations, followUps } = synthesisResult;
+
+  // Append mind map to outputs if generated successfully
+  if (mindMapResult) {
+    outputs.push(mindMapResult);
+  }
 
   // Step 5: Compute overall confidence
   const avgConfidence = outputs.length > 0

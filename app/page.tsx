@@ -10,7 +10,7 @@ import {
   Activity, Zap, Shield, Sun, Moon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
-import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment } from '@/lib/agents/types';
+import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
 import { useTheme } from '@/lib/theme';
 import {
@@ -672,13 +672,25 @@ export default function VeracityDashboard() {
               <GitBranch size={10} style={{ color: textSubtle }} />
               <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>Mind Map</span>
             </div>
-            <div className="rounded-lg p-3.5 flex flex-col items-center gap-1.5"
-              style={{ border: `1px dashed ${borderC}`, background: 'transparent' }}>
-              <GitBranch size={16} style={{ color: isDark ? '#2a2a2a' : '#ddd' }} />
-              <p className="text-[11px] font-mono text-center leading-snug" style={{ color: textSubtle }}>
-                query graph appears after first analysis
-              </p>
-            </div>
+            {(() => {
+              const mindMapOutput = currentResult?.orchestratorOutput?.outputs?.find(o => o.artifactType === 'mind-map') as MindMapOutput | undefined;
+              if (mindMapOutput?.branches?.length) {
+                return (
+                  <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+                    <ArtifactRenderer output={mindMapOutput} product={currentResult?.orchestratorOutput?.product ?? ''} />
+                  </div>
+                );
+              }
+              return (
+                <div className="rounded-lg p-3.5 flex flex-col items-center gap-1.5"
+                  style={{ border: `1px dashed ${borderC}`, background: 'transparent' }}>
+                  <GitBranch size={16} style={{ color: isDark ? '#2a2a2a' : '#ddd' }} />
+                  <p className="text-[11px] font-mono text-center leading-snug" style={{ color: textSubtle }}>
+                    query graph appears after first analysis
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -1021,6 +1033,25 @@ export default function VeracityDashboard() {
                 </div>
               </div>
             )}
+
+            {/* ── Inline Mind Map ── */}
+            {(() => {
+              const mindMapOutput = currentResult?.orchestratorOutput?.outputs?.find(o => o.artifactType === 'mind-map') as MindMapOutput | undefined;
+              if (!mindMapOutput?.branches?.length) return null;
+              return (
+                <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+                  <div className="flex items-center gap-2 px-5 py-3.5" style={{ borderBottom: `1px solid ${borderC}` }}>
+                    <GitBranch size={14} style={{ color: '#0070f3' }} />
+                    <span className="text-[12px] font-mono font-semibold uppercase tracking-widest" style={{ color: textMuted }}>
+                      Mind Map
+                    </span>
+                  </div>
+                  <div className="p-4">
+                    <ArtifactRenderer output={mindMapOutput} product={currentResult?.orchestratorOutput?.product ?? ''} />
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* ── Follow-up answers ── */}
             {followUps.map(fu => (
