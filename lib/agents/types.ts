@@ -211,4 +211,5 @@ export interface AgentContext {
   competitorUrl?: string;
   priorContext?: string;    // serialised prior conversation findings
   images?: ImageAttachment[];  // optional visual context from user
+  memoryContext?: string;      // persistent user memory across all sessions
 }

@@ -16,7 +16,7 @@ function encode(chunk: StreamChunk): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { query: string; history: ConversationMessage[]; images?: ImageAttachment[] };
+  let body: { query: string; history: ConversationMessage[]; images?: ImageAttachment[]; memoryContext?: string };
 
   try {
     body = await req.json();
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { query, history = [], images = [] } = body;
+  const { query, history = [], images = [], memoryContext } = body;
 
   if (!query?.trim()) {
     return new Response(JSON.stringify({ error: 'query is required' }), {
@@ -56,6 +56,7 @@ export async function POST(req: NextRequest) {
         history,
         (agentRun: AgentRun) => { write({ type: 'agent_update', run: agentRun }); },
         images,
+        memoryContext,
       );
       write({ type: 'result', output: result });
     } catch (err) {
