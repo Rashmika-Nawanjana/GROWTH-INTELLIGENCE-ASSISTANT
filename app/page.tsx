@@ -1,7 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, MessageSquare, Search, ChevronRight, Check, RefreshCw, ArrowUpRight, Clock, ShieldCheck, Database } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Send, Plus, MessageSquare, Search, ChevronRight, Check, RefreshCw, ArrowUpRight, Clock, ShieldCheck, Database, LogOut, User } from 'lucide-react';
+import { createClient } from '@/lib/supabase-browser';
 
 // Mock Data
 type Message = {
@@ -66,11 +68,27 @@ const HISTORY_ITEMS = [
 const DOMAIN_FILTERS = ['SaaS', 'Fintech', 'Healthtech', 'E-commerce'];
 
 export default function VeracityChat() {
+  const router = useRouter();
+  const supabase = createClient();
   const [messages, setMessages] = useState(INITIAL_CONVERSATION);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeHistoryId, setActiveHistoryId] = useState(1);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setUserEmail(data.user?.email ?? null);
+    });
+  }, []);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push('/auth');
+    router.refresh();
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -175,12 +193,40 @@ export default function VeracityChat() {
             </span>
           </div>
           
-          <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground bg-foreground text-white px-4 py-1.5 rounded-full shadow-sm">
-            <span className="flex items-center gap-1.5"><Clock size={12} className="text-accent-secondary" /> &lt;5 min</span>
-            <span className="w-px h-3 bg-white/20"></span>
-            <span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-accent-secondary" /> 95% grounded</span>
-            <span className="w-px h-3 bg-white/20"></span>
-            <span className="flex items-center gap-1.5"><Database size={12} className="text-accent-secondary" /> 16+ sources</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4 text-xs font-mono text-muted-foreground bg-foreground text-white px-4 py-1.5 rounded-full shadow-sm">
+              <span className="flex items-center gap-1.5"><Clock size={12} className="text-accent-secondary" /> &lt;5 min</span>
+              <span className="w-px h-3 bg-white/20"></span>
+              <span className="flex items-center gap-1.5"><ShieldCheck size={12} className="text-accent-secondary" /> 95% grounded</span>
+              <span className="w-px h-3 bg-white/20"></span>
+              <span className="flex items-center gap-1.5"><Database size={12} className="text-accent-secondary" /> 16+ sources</span>
+            </div>
+
+            {/* User menu */}
+            <div className="relative">
+              <button
+                onClick={() => setShowUserMenu(v => !v)}
+                className="w-8 h-8 rounded-full bg-gradient-signature text-white flex items-center justify-center text-xs font-medium hover:opacity-90 transition-opacity"
+              >
+                {userEmail ? userEmail[0].toUpperCase() : <User size={14} />}
+              </button>
+              {showUserMenu && (
+                <div className="absolute right-0 top-10 w-52 veracity-card py-2 z-50">
+                  {userEmail && (
+                    <p className="px-4 py-2 text-xs text-muted-foreground truncate border-b border-border mb-1">
+                      {userEmail}
+                    </p>
+                  )}
+                  <button
+                    onClick={handleSignOut}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-foreground hover:bg-muted transition-colors"
+                  >
+                    <LogOut size={14} className="text-muted-foreground" />
+                    Sign out
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
