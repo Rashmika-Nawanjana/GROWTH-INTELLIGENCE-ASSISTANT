@@ -3,7 +3,11 @@
     "allow": [
       "Bash(npx tsc:*)",
       "Bash(npm install:*)",
-      "Bash(npm list:*)"
+      "Bash(npm list:*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//d/Projects/growth-intelligence-assistant/lib/agents/**)",
+      "Bash(done)"
     ]
   }
 }

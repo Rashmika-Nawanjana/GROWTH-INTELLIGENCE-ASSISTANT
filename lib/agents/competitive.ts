@@ -25,8 +25,8 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
 
   // ── Parallel data fetch ────────────────────────────────────────────────────
   const [webResult, newsResult, hnResult, scrapeResult, pricingResult] = await Promise.allSettled([
-    searchWeb(`${competitorName} AI SDR features changelog product update 2025`),
-    searchNews(`${competitorName} funding launch feature announcement`),
+    searchWeb(`${competitorName} features product update 2025 2026`),
+    searchNews(`${competitorName} funding launch product announcement 2025`),
     searchHN(`${competitorName} ${product}`),
     scrapePage(compUrl),
     scrapeCompetitorPricing(compUrl),
@@ -105,7 +105,7 @@ Produce a JSON object:
   "confidenceScore": number
 }
 
-For the matrix, evaluate these dimensions: AI Email Automation, Voice AI, CRM Integrations, Personalization Engine, LinkedIn Outreach, Analytics & Reporting, Workflow Builder, API & Integrations, Onboarding UX, Pricing Flexibility.`;
+For the matrix, infer the most relevant feature dimensions from the signals above. Choose dimensions that are actually relevant to ${product} and ${competitorName} based on what the data shows.`;
 
   let parsed: any = {};
   try {
@@ -118,7 +118,7 @@ For the matrix, evaluate these dimensions: AI Email Automation, Voice AI, CRM In
       },
     });
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    parsed = JSON.parse(text);
+    const clean = text.replace(/```jsons*/i,'').replace(/```s*/i,'').replace(/s*```$/i,'').trim(); parsed = JSON.parse(clean);
   } catch {
     parsed = {
       facts: rawContent.slice(0, 3),

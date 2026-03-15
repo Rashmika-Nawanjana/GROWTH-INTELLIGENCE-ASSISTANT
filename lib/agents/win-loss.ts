@@ -49,7 +49,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
 
   // Also search for deal loss reasons in sales-adjacent communities
   const [salesRedditResult] = await Promise.allSettled([
-    searchReddit(`${competitorName} OR ${product} SDR sales automation review`, 'sales'),
+    searchReddit(`${product} review alternative experience`),
   ]);
 
   // ── Collect sources ────────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ Produce JSON:
       },
     });
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    parsed = JSON.parse(text);
+    const clean = text.replace(/```jsons*/i,'').replace(/```s*/i,'').replace(/s*```$/i,'').trim(); parsed = JSON.parse(clean);
   } catch {
     parsed = {
       facts: rawContent.slice(0, 3),

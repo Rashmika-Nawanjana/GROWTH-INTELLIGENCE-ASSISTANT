@@ -144,7 +144,7 @@ Dimensions to analyse: Value Framing, Audience Language, Category Claim, Emotion
       },
     });
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    parsed = JSON.parse(text);
+    const clean = text.replace(/```jsons*/i,'').replace(/```s*/i,'').replace(/s*```$/i,'').trim(); parsed = JSON.parse(clean);
   } catch {
     parsed = {
       facts: rawContent.slice(0, 3),

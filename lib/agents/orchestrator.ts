@@ -83,15 +83,15 @@ Domain selection rules:
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       config: { responseMimeType: 'application/json' },
     });
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    const parsed = JSON.parse(text);
+    const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    const parsed = safeParseJson(raw);
     return {
-      product: parsed.product ?? 'Vector Agents',
-      competitor: parsed.competitor ?? undefined,
-      productUrl: parsed.productUrl ?? undefined,
-      competitorUrl: parsed.competitorUrl ?? undefined,
-      domains: parsed.domains ?? ['market-trends', 'competitive', 'win-loss'],
-      intent: parsed.intent ?? query,
+      product: (parsed.product as string) ?? 'the product',
+      competitor: (parsed.competitor as string) ?? undefined,
+      productUrl: (parsed.productUrl as string) ?? undefined,
+      competitorUrl: (parsed.competitorUrl as string) ?? undefined,
+      domains: (parsed.domains as IntelligenceDomain[]) ?? ['market-trends', 'competitive', 'win-loss'],
+      intent: (parsed.intent as string) ?? query,
     };
   } catch {
     // Fallback: activate all domains
@@ -100,6 +100,28 @@ Domain selection rules:
       domains: ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent'],
       intent: query,
     };
+  }
+}
+
+// Strip markdown code fences Gemini sometimes wraps around JSON
+function stripJsonFences(raw: string): string {
+  return raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+function safeParseJson(raw: string): Record<string, unknown> {
+  try {
+    return JSON.parse(stripJsonFences(raw));
+  } catch {
+    // Try extracting first JSON object/array from the string
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch { /* ignore */ }
+    }
+    return {};
   }
 }
 
@@ -118,64 +140,66 @@ async function synthesize(
   const outputSummaries = outputs.map(o => ({
     domain: o.domain,
     confidence: o.confidence,
-    facts: o.facts.slice(0, 3),
-    interpretation: o.interpretation.slice(0, 2),
+    facts: o.facts.slice(0, 4),
+    interpretation: o.interpretation.slice(0, 3),
   }));
 
-  const systemPrompt = `You are the synthesis layer of a multi-agent growth intelligence system. You receive structured findings from 6 specialist agents and produce:
-1. A clear, direct answer to the user's question
-2. Prioritised strategic recommendations with confidence scores
-3. Follow-up questions that would deepen the analysis
+  const prompt = `You are the synthesis layer of a multi-agent growth intelligence system.
 
-Rules:
-- Be specific and actionable — no generic advice
-- Reference the domain agents' findings explicitly
-- Separate what you KNOW (facts) from what you INFER (interpretation)
-- Keep the synthesized answer under 200 words`;
-
-  const userPrompt = `Original query: "${query}"
+Original query: "${query}"
 ${priorSummary ? `Prior conversation context:\n${priorSummary}\n` : ''}
-Agent findings:
+Agent findings from ${outputs.length} specialist agents:
 ${JSON.stringify(outputSummaries, null, 2)}
 
-Produce JSON:
+Rules:
+- Give a specific, direct answer grounded in the agent findings above — no generic advice
+- Reference facts from specific domains (e.g. "Market trends data shows...")
+- Separate what you KNOW (facts) from what you INFER (interpretation)
+- Keep the answer under 200 words
+
+Return ONLY valid JSON (no markdown, no fences):
 {
-  "answer": string,
+  "answer": "string — direct answer to the query, referencing agent findings",
   "recommendations": [
     {
-      "title": string,
-      "rationale": string,
-      "evidence": string[],
+      "title": "string",
+      "rationale": "string — why this matters, grounded in findings",
+      "evidence": ["string"],
       "confidence": "high" | "medium" | "low",
       "priority": "immediate" | "short-term" | "strategic"
     }
   ],
-  "followUps": string[]
+  "followUps": ["string — 3 follow-up questions"]
 }`;
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: 'application/json',
-      },
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      config: { responseMimeType: 'application/json' },
     });
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    const parsed = JSON.parse(text);
+    const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    const parsed = safeParseJson(raw);
     return {
-      answer: parsed.answer ?? 'Analysis complete.',
-      recommendations: parsed.recommendations ?? [],
-      followUps: parsed.followUps ?? [],
+      answer: (parsed.answer as string) || buildFallbackAnswer(outputs, query),
+      recommendations: (parsed.recommendations as Recommendation[]) ?? [],
+      followUps: (parsed.followUps as string[]) ?? [],
     };
-  } catch {
+  } catch (err) {
     return {
-      answer: 'Analysis complete. See agent findings below.',
+      answer: buildFallbackAnswer(outputs, query),
       recommendations: [],
       followUps: [],
     };
   }
+}
+
+function buildFallbackAnswer(outputs: AgentOutput[], query: string): string {
+  if (outputs.length === 0) return `No signal data could be retrieved for: "${query}". Check your API keys.`;
+  const lines = outputs.map(o =>
+    `**${o.domain}**: ${o.facts.slice(0, 2).join(' ')}`
+  );
+  return lines.join('\n\n');
 }
 
 // ── Main orchestrator ─────────────────────────────────────────────────────────

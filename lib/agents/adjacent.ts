@@ -19,47 +19,47 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   const { query, product, competitor, priorContext } = ctx;
 
   const category = competitor
-    ? `${product} ${competitor} AI SDR`
-    : `${product} AI sales automation`;
+    ? `${product} vs ${competitor}`
+    : product;
 
-  // ── Parallel data fetch ────────────────────────────────────────────────────
+  // ── Parallel data fetch — fully dynamic based on actual product ────────────
   const [
-    crmThreatResult,
-    openaiThreatResult,
-    voiceThreatResult,
+    platformThreatResult,
+    aiFundingResult,
+    disruptorResult,
     fundingResult,
     hnAdjacentResult,
     redditAdjacentResult,
   ] = await Promise.allSettled([
-    searchWeb('CRM Salesforce HubSpot AI SDR built-in sales automation 2025'),
-    searchWeb('OpenAI agents GPT sales outreach automation disruption 2025'),
-    searchWeb('voice AI sales automation startup funding 2025'),
-    searchNews('AI sales automation funding round Series A B 2025'),
-    getTechSentiment('AI SDR disruption CRM'),
-    searchReddit('AI SDR alternatives CRM built-in sales AI automation'),
+    searchWeb(`${product} competitors alternatives disruption market 2025 2026`),
+    searchWeb(`${product} category adjacent market expansion threat 2025`),
+    searchWeb(`companies replacing ${product} OR disrupting ${category} 2025 2026`),
+    searchNews(`${product}${competitor ? ` ${competitor}` : ''} market disruption funding threat`),
+    getTechSentiment(`${product} disruption threat`),
+    searchReddit(`${product} alternatives what are people using instead`),
   ]);
 
-  // Scrape a patent signal (USPTO) if possible
+  // Patent signals scoped to actual product
   const [patentResult] = await Promise.allSettled([
-    searchWeb(`"AI sales development representative" OR "AI SDR" patent filing site:patents.google.com OR site:patents.justia.com`),
+    searchWeb(`${product} patent filing technology site:patents.google.com OR site:patents.justia.com`),
   ]);
 
   // ── Collect sources ────────────────────────────────────────────────────────
   const sources: AgentSource[] = [];
   const rawContent: string[] = [];
 
-  const addWebResults = (result: typeof crmThreatResult, label: string) => {
+  const addWebResults = (result: PromiseSettledResult<Awaited<ReturnType<typeof searchWeb>>>, label: string) => {
     if (result.status === 'fulfilled') {
-      result.value.data.slice(0, 4).forEach(r => {
+      result.value.data.slice(0, 4).forEach((r: { url: string; title: string; snippet: string }) => {
         sources.push({ url: r.url, title: r.title, timestamp: result.value.timestamp, tool: 'serpapi' });
         rawContent.push(`[${label}] ${r.title}: ${r.snippet}`);
       });
     }
   };
 
-  addWebResults(crmThreatResult, 'CRM THREAT');
-  addWebResults(openaiThreatResult, 'OPENAI THREAT');
-  addWebResults(voiceThreatResult, 'VOICE THREAT');
+  addWebResults(platformThreatResult, 'PLATFORM THREAT');
+  addWebResults(aiFundingResult, 'ADJACENT MARKET');
+  addWebResults(disruptorResult, 'DISRUPTOR');
   addWebResults(fundingResult, 'FUNDING');
 
   if (hnAdjacentResult.status === 'fulfilled') {
@@ -82,13 +82,13 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   // ── Gemini synthesis ───────────────────────────────────────────────────────
   const systemPrompt = `You are a strategic threat analyst who identifies companies from OUTSIDE the primary category that could disrupt it. You think in terms of market adjacency, platform expansion, and category convergence.
 
-Key question: What companies are NOT currently in the AI SDR market but have the distribution, data, or technology to enter it credibly within 12-18 months?
+Key question: What companies or trends are NOT currently in the ${category} space but have the distribution, data, or technology to enter it or displace it credibly within 12-18 months?
 
 Types of adjacent threats to watch:
-1. Platform expansion — large platforms (CRM, communication) adding adjacent features
-2. Infrastructure players — AI/ML infrastructure companies moving up-stack
-3. Horizontal AI — general-purpose AI agents expanding into vertical use cases
-4. Category convergence — meeting AI, voice AI, or workflow tools expanding into sales
+1. Platform expansion — large platforms adding the same capability as a feature
+2. Infrastructure players — lower-level tech companies moving up-stack
+3. Horizontal AI — general-purpose AI agents expanding into this vertical
+4. Category convergence — adjacent tools expanding into this space
 ${priorContext ? `\nPrior conversation context:\n${priorContext}` : ''}`;
 
   const userPrompt = `Query: "${query}"
@@ -128,7 +128,7 @@ Produce JSON:
       },
     });
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    parsed = JSON.parse(text);
+    const clean = text.replace(/```jsons*/i,'').replace(/```s*/i,'').replace(/s*```$/i,'').trim(); parsed = JSON.parse(clean);
   } catch {
     parsed = {
       facts: rawContent.slice(0, 3),

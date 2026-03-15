@@ -23,12 +23,14 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     ? `${product} vs ${competitor}`
     : product;
 
+  const trendKeywords = [product, competitor].filter(Boolean) as string[];
+
   const [webResult, newsResult, trendsResult, hnResult, redditResult] = await Promise.allSettled([
-    searchWeb(`${category} market trends 2025 2026`),
-    searchNews(`${product} ${competitor ?? ''} AI market growth funding`),
-    searchTrends([product, competitor ?? 'AI SDR', 'AI sales automation', 'voice AI sales'].filter(Boolean)),
-    getTechSentiment(`${product} ${competitor ?? ''}`),
-    searchReddit(`${category} market growth trend`, 'sales'),
+    searchWeb(`${query} trends 2025 2026`),
+    searchNews(`${product}${competitor ? ` ${competitor}` : ''} market growth revenue funding`),
+    searchTrends(trendKeywords),
+    getTechSentiment(product),
+    searchReddit(query),
   ]);
 
   // ── Collect sources ────────────────────────────────────────────────────────
@@ -115,7 +117,7 @@ Produce a JSON object with this exact shape:
       },
     });
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    parsed = JSON.parse(text);
+    const clean = text.replace(/```jsons*/i,'').replace(/```s*/i,'').replace(/s*```$/i,'').trim(); parsed = JSON.parse(clean);
   } catch {
     parsed = {
       facts: rawContent.slice(0, 4),

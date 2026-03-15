@@ -6,77 +6,33 @@ import { Send, Plus, MessageSquare, Search, ChevronRight, Check, RefreshCw, Arro
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput } from '@/lib/agents/types';
 
+type SourceLink = { title: string; url: string };
+
 type Message = {
   id: number;
   role: 'user' | 'assistant';
-  type?: 'text' | 'competitive_analysis' | 'recommendations' | 'intelligence';
+  type?: 'text' | 'intelligence';
   content: string;
-  matrix?: any[];
-  sources?: string[];
+  sources?: SourceLink[];
   suggestions?: string[];
   recommendations?: any[];
-  // Live intelligence fields
   agentRuns?: AgentRun[];
   orchestratorOutput?: OrchestratorOutput;
 };
 
-const INITIAL_CONVERSATION: Message[] = [
-  {
-    id: 1,
-    role: 'user',
-    content: 'Is Lilian competitive in the AI SDR market right now?',
-  },
-  {
-    id: 2,
-    role: 'assistant',
-    type: 'competitive_analysis',
-    content: 'Lilian is currently facing strong headwinds in the mid-market AI SDR segment. While their outbound email personalization remains top-tier, their lack of native CRM sync and higher pricing has led to a 14% drop in win rates against emerging competitors like Vector over the last quarter.',
-    matrix: [
-      { feature: 'Outbound Personalization', vector: 'Good', lilian: 'Excellent', vectorColor: 'text-amber-600 bg-amber-50', lilianColor: 'text-emerald-600 bg-emerald-50' },
-      { feature: 'CRM Integration', vector: 'Native (Salesforce/HubSpot)', lilian: 'Zapier Only', vectorColor: 'text-emerald-600 bg-emerald-50', lilianColor: 'text-red-600 bg-red-50' },
-      { feature: 'Pricing (Per Seat)', vector: '$89/mo', lilian: '$149/mo', vectorColor: 'text-emerald-600 bg-emerald-50', lilianColor: 'text-red-600 bg-red-50' },
-      { feature: 'Call Coaching', vector: 'Included', lilian: 'Add-on ($50)', vectorColor: 'text-emerald-600 bg-emerald-50', lilianColor: 'text-amber-600 bg-amber-50' },
-      { feature: 'Setup Time', vector: '< 2 hours', lilian: '1-2 weeks', vectorColor: 'text-emerald-600 bg-emerald-50', lilianColor: 'text-red-600 bg-red-50' },
-    ],
-    sources: ['Meta Ad Library', 'G2 Reviews', 'LinkedIn', 'SerpAPI'],
-    suggestions: ['How does Vector\'s pricing compare to others?', 'Show me Lilian\'s recent ad copy', 'What are Lilian\'s top negative G2 reviews?']
-  },
-  {
-    id: 3,
-    role: 'user',
-    content: 'What should Vector build next?',
-  },
-  {
-    id: 4,
-    role: 'assistant',
-    type: 'recommendations',
-    content: 'Based on current market gaps and competitor weaknesses, here are the prioritized product recommendations for Vector:',
-    recommendations: [
-      { title: 'Native Outreach.io Integration', rationale: 'Closes the biggest feature gap mentioned in 42% of lost deals last quarter.', score: 94 },
-      { title: 'AI Voice Agent Handoff', rationale: 'Emerging trend; early adopters are seeing 3x meeting booked rates. Lilian does not have this.', score: 87 },
-      { title: 'Automated LinkedIn Connection Requests', rationale: 'Highly requested by SDRs, but carries platform risk. High reward, medium risk.', score: 72 }
-    ],
-    sources: ['CRM Lost Reasons', 'Feature Requests Board', 'Competitor Roadmaps'],
-    suggestions: ['Draft a PRD for the Outreach integration', 'Analyze the AI Voice Agent market', 'What are the risks of LinkedIn automation?']
-  }
+const DEMO_QUERIES = [
+  'Is Lilian competitive in the AI SDR market right now? Where does Vector stand?',
+  'Is the digital workers category accelerating or consolidating?',
+  'What should Vector Agents build to capture emerging demand?',
 ];
-
-const HISTORY_ITEMS = [
-  { id: 1, title: 'Lilian vs Vector Competitive Analysis' },
-  { id: 2, title: 'Q3 Enterprise AI Spending Trends' },
-  { id: 3, title: 'Top 10 Fast-Growing Startups in YC W24' },
-  { id: 4, title: 'Salesforce Einstein Pricing Strategy' },
-];
-
-const DOMAIN_FILTERS = ['SaaS', 'Fintech', 'Healthtech', 'E-commerce'];
 
 export default function VeracityChat() {
   const router = useRouter();
   const supabase = createClient();
-  const [messages, setMessages] = useState(INITIAL_CONVERSATION);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [activeHistoryId, setActiveHistoryId] = useState(1);
+  const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -182,7 +138,10 @@ export default function VeracityChat() {
                         evidence: r.evidence,
                         priority: r.priority,
                       })),
-                      sources: out.outputs?.flatMap(o => o.sources?.map(s => s.title) ?? []).slice(0, 6),
+                      sources: out.outputs
+                        ?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? [])
+                        .filter((s, i, a) => s.url && a.findIndex(x => x.url === s.url) === i)
+                        .slice(0, 10),
                       suggestions: out.suggestedFollowUps?.slice(0, 3),
                     }
                   : m
@@ -212,7 +171,7 @@ export default function VeracityChat() {
 
   const handleNewQuery = () => {
     setMessages([]);
-    setActiveHistoryId(0);
+    setExpandedDomain(null);
   };
 
   return (
@@ -234,33 +193,28 @@ export default function VeracityChat() {
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-2">
-          <div className="text-xs font-mono text-muted-foreground mb-3 px-2 uppercase tracking-wider">Recent Queries</div>
-          <div className="space-y-1">
-            {HISTORY_ITEMS.map(item => (
-              <button
-                key={item.id}
-                onClick={() => setActiveHistoryId(item.id)}
-                className={`w-full text-left px-3 py-2.5 rounded-lg text-sm flex items-center gap-3 transition-colors ${
-                  activeHistoryId === item.id 
-                    ? 'bg-white shadow-sm border border-border text-foreground font-medium' 
-                    : 'text-muted-foreground hover:bg-black/5 hover:text-foreground'
-                }`}
-              >
-                <MessageSquare size={16} className={activeHistoryId === item.id ? 'text-accent' : 'opacity-50'} />
-                <span className="truncate">{item.title}</span>
-              </button>
+          <div className="text-xs font-mono text-muted-foreground mb-3 px-2 uppercase tracking-wider">Intelligence Domains</div>
+          <div className="space-y-1 px-2">
+            {[
+              { label: 'Market & Trend Sensing', icon: '📈' },
+              { label: 'Competitive Landscape', icon: '⚔️' },
+              { label: 'Win / Loss Intelligence', icon: '🏆' },
+              { label: 'Pricing & Packaging', icon: '💰' },
+              { label: 'Positioning & Messaging', icon: '📣' },
+              { label: 'Adjacent Market Collision', icon: '🔭' },
+            ].map(d => (
+              <div key={d.label} className="flex items-center gap-2 px-1 py-1.5 text-xs text-muted-foreground">
+                <span>{d.icon}</span>
+                <span className="truncate">{d.label}</span>
+              </div>
             ))}
           </div>
         </div>
 
         <div className="p-4 border-t border-border">
-          <div className="text-xs font-mono text-muted-foreground mb-3 px-2 uppercase tracking-wider">Domains</div>
-          <div className="flex flex-wrap gap-2 px-2">
-            {DOMAIN_FILTERS.map(domain => (
-              <span key={domain} className="text-[11px] font-mono bg-black/5 text-muted-foreground px-2.5 py-1 rounded-full border border-black/5 cursor-pointer hover:bg-black/10 transition-colors">
-                {domain}
-              </span>
-            ))}
+          <div className="flex items-center gap-1.5 px-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse-dot" />
+            <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Live · Sourced · Grounded</span>
           </div>
         </div>
       </div>
@@ -323,15 +277,16 @@ export default function VeracityChat() {
             
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-[60vh] text-center animate-in fade-in slide-in-from-bottom-4 duration-500">
-                <h2 className="font-serif text-4xl text-foreground mb-8">What do you want to know?</h2>
-                <div className="flex flex-wrap justify-center gap-3 max-w-2xl">
-                  {['Analyze Stripe\'s recent pricing changes', 'Who are the key players in AI legal tech?', 'Compare Datadog and New Relic enterprise features'].map(q => (
-                    <button 
+                <h2 className="font-serif text-4xl text-foreground mb-3">What do you want to know?</h2>
+                <p className="text-muted-foreground text-sm mb-8">Live signals from 16+ sources · 6 intelligence domains · Sourced & confidence-scored</p>
+                <div className="flex flex-col gap-3 w-full max-w-xl">
+                  {DEMO_QUERIES.map(q => (
+                    <button
                       key={q}
                       onClick={() => handleSend(q)}
-                      className="veracity-card veracity-card-hover px-5 py-3 text-sm text-foreground flex items-center gap-2"
+                      className="veracity-card veracity-card-hover px-5 py-3.5 text-sm text-foreground flex items-center gap-3 text-left"
                     >
-                      <Search size={16} className="text-accent" />
+                      <Search size={15} className="text-accent shrink-0" />
                       {q}
                     </button>
                   ))}
@@ -339,18 +294,18 @@ export default function VeracityChat() {
               </div>
             ) : (
               messages.map((msg, idx) => (
-                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`} style={{ animationFillMode: 'both', animationDelay: `${idx * 100}ms` }}>
-                  
+                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`} style={{ animationFillMode: 'both', animationDelay: `${idx * 50}ms` }}>
+
                   {msg.role === 'user' ? (
                     <div className="bg-foreground text-white px-5 py-3.5 rounded-2xl rounded-tr-sm max-w-[85%] text-[15px] leading-relaxed shadow-sm">
                       {msg.content}
                     </div>
                   ) : (
                     <div className="max-w-[95%] w-full flex flex-col gap-4">
-                      
-                      {/* Live Agent Status Pills */}
+
+                      {/* Agent status pills */}
                       {msg.agentRuns && msg.agentRuns.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mb-1">
+                        <div className="flex flex-wrap gap-2">
                           {msg.agentRuns.map(run => (
                             run.status === 'running' ? (
                               <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
@@ -364,93 +319,138 @@ export default function VeracityChat() {
                               <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-red-50 text-red-600 border border-red-200 flex items-center gap-1">
                                 {run.name} ✕
                               </span>
-                            ) : (
-                              <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-muted text-muted-foreground border border-border flex items-center gap-1 opacity-50">
-                                {run.name}
-                              </span>
-                            )
+                            ) : null
                           ))}
                         </div>
                       )}
 
+                      {/* Main answer card */}
                       <div className="veracity-card p-6 flex flex-col gap-5">
-                        <div className="text-[15px] leading-relaxed text-foreground">
-                          {msg.content}
-                        </div>
 
-                        {/* Inline Matrix */}
-                        {msg.type === 'competitive_analysis' && msg.matrix && (
-                          <div className="overflow-hidden rounded-xl border border-border">
-                            <table className="w-full text-sm text-left">
-                              <thead className="bg-muted text-xs font-mono uppercase text-muted-foreground">
-                                <tr>
-                                  <th className="px-4 py-3 font-medium">Feature / Dimension</th>
-                                  <th className="px-4 py-3 font-medium border-l border-border">Vector</th>
-                                  <th className="px-4 py-3 font-medium border-l border-border">Lilian</th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-border">
-                                {msg.matrix.map((row: any, i: number) => (
-                                  <tr key={i} className="bg-white hover:bg-black/[0.02] transition-colors">
-                                    <td className="px-4 py-3 font-medium text-foreground">{row.feature}</td>
-                                    <td className={`px-4 py-3 border-l border-border ${row.vectorColor}`}>
-                                      <span className="px-2 py-1 rounded-md text-xs font-medium">{row.vector}</span>
-                                    </td>
-                                    <td className={`px-4 py-3 border-l border-border ${row.lilianColor}`}>
-                                      <span className="px-2 py-1 rounded-md text-xs font-medium">{row.lilian}</span>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
+                        {/* Synthesized answer */}
+                        {msg.content && (
+                          <div className="text-[15px] leading-relaxed text-foreground whitespace-pre-line">
+                            {msg.content}
                           </div>
                         )}
 
                         {/* Recommendations */}
-                        {msg.type === 'recommendations' && msg.recommendations && (
+                        {msg.recommendations && msg.recommendations.length > 0 && (
                           <div className="flex flex-col gap-3">
+                            <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Strategic Recommendations</h3>
                             {msg.recommendations.map((rec: any, i: number) => (
-                              <div key={i} className="p-4 rounded-xl border border-border bg-muted/30 flex flex-col gap-3">
+                              <div key={i} className="p-4 rounded-xl border border-border bg-muted/30 flex flex-col gap-2">
                                 <div className="flex justify-between items-start gap-4">
-                                  <div>
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                        rec.priority === 'immediate' ? 'bg-red-50 text-red-600 border border-red-200' :
+                                        rec.priority === 'short-term' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                        'bg-blue-50 text-blue-600 border border-blue-200'
+                                      }`}>{rec.priority ?? 'strategic'}</span>
+                                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                        rec.confidence === 'high' || rec.score >= 80 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                        rec.confidence === 'medium' || rec.score >= 55 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                        'bg-muted text-muted-foreground border border-border'
+                                      }`}>{rec.confidence ?? (rec.score >= 80 ? 'high' : rec.score >= 55 ? 'medium' : 'low')} confidence</span>
+                                    </div>
                                     <h4 className="font-medium text-foreground mb-1">{rec.title}</h4>
                                     <p className="text-sm text-muted-foreground leading-relaxed">{rec.rationale}</p>
+                                    {rec.evidence && rec.evidence.length > 0 && (
+                                      <ul className="mt-2 flex flex-col gap-0.5">
+                                        {rec.evidence.map((e: string, ei: number) => (
+                                          <li key={ei} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                                            <span className="text-accent mt-0.5">›</span>{e}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    )}
                                   </div>
-                                  <div className="flex flex-col items-end gap-1 shrink-0">
-                                    <span className="text-xs font-mono font-medium text-accent">{rec.score}/100</span>
-                                  </div>
-                                </div>
-                                <div className="h-1.5 w-full bg-border rounded-full overflow-hidden">
-                                  <div 
-                                    className="h-full bg-gradient-signature rounded-full" 
-                                    style={{ width: `${rec.score}%` }}
-                                  ></div>
                                 </div>
                               </div>
                             ))}
                           </div>
                         )}
 
-                        {/* Sources */}
-                        {msg.sources && (
-                          <div className="flex items-center gap-2 pt-2 border-t border-border/50">
-                            <span className="text-xs font-mono text-muted-foreground uppercase">Sources:</span>
+                        {/* Per-domain agent findings (expandable) */}
+                        {msg.orchestratorOutput?.outputs && msg.orchestratorOutput.outputs.length > 0 && (
+                          <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
+                            <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-1">Agent Findings</h3>
+                            {msg.orchestratorOutput.outputs.map((output) => (
+                              <div key={output.domain} className="rounded-xl border border-border overflow-hidden">
+                                <button
+                                  onClick={() => setExpandedDomain(expandedDomain === `${msg.id}-${output.domain}` ? null : `${msg.id}-${output.domain}`)}
+                                  className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/70 transition-colors text-left"
+                                >
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-xs font-mono font-medium text-foreground capitalize">{output.domain.replace(/-/g, ' ')}</span>
+                                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                      output.confidence === 'high' ? 'bg-emerald-50 text-emerald-700' :
+                                      output.confidence === 'medium' ? 'bg-amber-50 text-amber-700' :
+                                      'bg-muted text-muted-foreground'
+                                    }`}>{output.confidence}</span>
+                                  </div>
+                                  <ChevronRight size={14} className={`text-muted-foreground transition-transform ${expandedDomain === `${msg.id}-${output.domain}` ? 'rotate-90' : ''}`} />
+                                </button>
+                                {expandedDomain === `${msg.id}-${output.domain}` && (
+                                  <div className="px-4 py-3 flex flex-col gap-3 bg-white">
+                                    {output.facts.length > 0 && (
+                                      <div>
+                                        <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Facts</p>
+                                        <ul className="flex flex-col gap-1">
+                                          {output.facts.map((f, i) => (
+                                            <li key={i} className="text-sm text-foreground flex items-start gap-1.5">
+                                              <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>{f}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {output.interpretation.length > 0 && (
+                                      <div>
+                                        <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Interpretation</p>
+                                        <ul className="flex flex-col gap-1">
+                                          {output.interpretation.map((interp, i) => (
+                                            <li key={i} className="text-sm text-muted-foreground flex items-start gap-1.5">
+                                              <span className="text-accent mt-0.5 shrink-0">›</span>{interp}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Sources — clickable links */}
+                        {msg.sources && msg.sources.length > 0 && (
+                          <div className="flex items-start gap-2 pt-2 border-t border-border/50">
+                            <span className="text-xs font-mono text-muted-foreground uppercase shrink-0 mt-0.5">Sources</span>
                             <div className="flex flex-wrap gap-2">
-                              {msg.sources.map((source: string) => (
-                                <span key={source} className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md flex items-center gap-1 hover:text-foreground hover:bg-black/5 cursor-pointer transition-colors">
-                                  {source} <ArrowUpRight size={10} />
-                                </span>
+                              {msg.sources.map((source) => (
+                                <a
+                                  key={source.url}
+                                  href={source.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded-md flex items-center gap-1 hover:text-accent hover:bg-accent/5 transition-colors"
+                                >
+                                  {source.title} <ArrowUpRight size={10} />
+                                </a>
                               ))}
                             </div>
                           </div>
                         )}
                       </div>
 
-                      {/* Suggestions */}
-                      {msg.suggestions && (
-                        <div className="flex flex-wrap gap-2 mt-1">
+                      {/* Follow-up suggestions */}
+                      {msg.suggestions && msg.suggestions.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
                           {msg.suggestions.map((sug: string) => (
-                            <button 
+                            <button
                               key={sug}
                               onClick={() => handleSend(sug)}
                               className="text-xs text-accent border border-accent/20 bg-accent/5 hover:bg-accent/10 hover:border-accent/30 px-3 py-1.5 rounded-full transition-colors flex items-center gap-1.5"
