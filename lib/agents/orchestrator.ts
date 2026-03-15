@@ -45,6 +45,7 @@ async function classifyQuery(
   query: string,
   history: ConversationMessage[],
   images: ImageAttachment[] = [],
+  memoryContext?: string,
 ): Promise<ClassificationResult> {
   // Build context from prior messages
   const priorContext = history
@@ -52,9 +53,9 @@ async function classifyQuery(
     .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content}`)
     .join('\n');
 
-  const prompt = `You are a query classifier for a growth intelligence system. Given a user query and conversation history, extract structured information.
+  const prompt = `You are a query classifier for a growth intelligence system. Extract structured information using conversation history and persistent user memory.
 
-Conversation history:
+${memoryContext ? `${memoryContext}\n\n` : ''}Conversation history:
 ${priorContext || 'None'}
 
 Current query: "${query}"
@@ -137,6 +138,7 @@ async function synthesize(
   outputs: AgentOutput[],
   history: ConversationMessage[],
   images: ImageAttachment[] = [],
+  memoryContext?: string,
 ): Promise<{ answer: string; recommendations: Recommendation[]; followUps: string[] }> {
   const priorSummary = history
     .slice(-4)
@@ -154,7 +156,7 @@ async function synthesize(
   const prompt = `You are the synthesis layer of a multi-agent growth intelligence system. Your job is to produce a clean, direct, well-written answer.
 
 Original query: "${query}"
-${priorSummary ? `Prior conversation context:\n${priorSummary}\n` : ''}
+${memoryContext ? `${memoryContext}\n` : ''}${priorSummary ? `Prior conversation context:\n${priorSummary}\n` : ''}
 Agent findings from ${outputs.length} specialist agents:
 ${JSON.stringify(outputSummaries, null, 2)}
 
@@ -231,12 +233,13 @@ export async function orchestrate(
   history: ConversationMessage[],
   onAgentUpdate?: (run: AgentRun) => void,
   images: ImageAttachment[] = [],
+  memoryContext?: string,
 ): Promise<OrchestratorOutput> {
 
   // Step 1: Classify query and extract context
-  const classification = await classifyQuery(query, history, images);
+  const classification = await classifyQuery(query, history, images, memoryContext);
 
-  const { product, competitor, productUrl, competitorUrl, domains, intent } = classification;
+  const { product, competitor, productUrl, competitorUrl, intent } = classification;
 
   // Build prior context string for agents
   const priorContext = history
@@ -252,6 +255,7 @@ export async function orchestrate(
     competitorUrl,
     priorContext: priorContext || undefined,
     images: images.length > 0 ? images : undefined,
+    memoryContext: memoryContext || undefined,
   };
 
   // Step 2: Always run all 6 agents for full intelligence coverage
@@ -291,7 +295,7 @@ export async function orchestrate(
     .map(r => r.value as AgentOutput);
 
   // Step 4: Synthesise
-  const { answer, recommendations, followUps } = await synthesize(query, outputs, history, images);
+  const { answer, recommendations, followUps } = await synthesize(query, outputs, history, images, memoryContext);
 
   // Step 5: Compute overall confidence
   const avgConfidence = outputs.length > 0
