@@ -30,7 +30,7 @@ export function ArtifactRenderer({ output, product }: Props) {
     case 'win-loss-scorecard': {
       const o = output as WinLossOutput;
       if (!o.competitorWins?.length && !o.competitorLosses?.length) return null;
-      return <WinLossScorecard output={o} />;
+      return <WinLossScorecard output={o} competitor={o.competitor} product={product} />;
     }
     case 'pricing-table': {
       const o = output as PricingOutput;
@@ -40,7 +40,7 @@ export function ArtifactRenderer({ output, product }: Props) {
     case 'positioning-gap': {
       const o = output as PositioningOutput;
       if (!o.gaps?.length && !o.yourPositioning) return null;
-      return <PositioningGap output={o} product={product} />;
+      return <PositioningGap output={o} product={product} competitor={o.competitor} />;
     }
     case 'threat-heatmap': {
       const o = output as AdjacentOutput;

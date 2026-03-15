@@ -5,6 +5,8 @@ import type { WinLossOutput, WinReason } from '@/lib/agents/types';
 
 interface Props {
   output: WinLossOutput;
+  competitor: string;
+  product: string;
 }
 
 const FREQ_CONFIG = {
@@ -40,24 +42,29 @@ function ReasonRow({ reason, type }: { reason: WinReason; type: 'win' | 'loss' }
   );
 }
 
-export function WinLossScorecard({ output }: Props) {
+export function WinLossScorecard({ output, competitor, product }: Props) {
   const { competitorWins, competitorLosses, buyerSentiment, topSwitchTriggers } = output;
   const sentCfg = SENTIMENT_CONFIG[buyerSentiment];
+  const competitorLabel = competitor && competitor !== 'main competitor' ? competitor : 'Competitor';
+  const productLabel = product || 'Us';
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Win / Loss Analysis</div>
-        <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${sentCfg.class}`}>
-          {sentCfg.label}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-mono font-semibold text-foreground uppercase tracking-wider px-2 py-0.5 rounded bg-accent/10 border border-accent/20">{competitorLabel}</span>
+          <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${sentCfg.class}`}>
+            {sentCfg.label}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         {/* Competitor wins (where competitor beats you) */}
         {competitorWins.length > 0 && (
           <div className="rounded-xl border border-red-100 bg-red-50/30 p-3 flex flex-col gap-0.5">
-            <p className="text-[10px] font-mono uppercase text-red-500 tracking-wider mb-1">Where competitor wins</p>
+            <p className="text-[10px] font-mono uppercase text-red-500 tracking-wider mb-1">Where <span className="font-bold">{competitorLabel}</span> wins</p>
             {competitorWins.slice(0, 4).map((r, i) => (
               <ReasonRow key={i} reason={r} type="loss" />
             ))}
@@ -67,7 +74,7 @@ export function WinLossScorecard({ output }: Props) {
         {/* Competitor losses (where competitor loses to you) */}
         {competitorLosses.length > 0 && (
           <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 flex flex-col gap-0.5">
-            <p className="text-[10px] font-mono uppercase text-emerald-600 tracking-wider mb-1">Where competitor loses</p>
+            <p className="text-[10px] font-mono uppercase text-emerald-600 tracking-wider mb-1">Where <span className="font-bold">{productLabel}</span> wins</p>
             {competitorLosses.slice(0, 4).map((r, i) => (
               <ReasonRow key={i} reason={r} type="win" />
             ))}
