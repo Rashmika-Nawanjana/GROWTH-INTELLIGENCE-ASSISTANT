@@ -8,9 +8,9 @@ interface Props {
 }
 
 const RISK_CONFIG = {
-  high:   { label: 'High Risk',   row: 'border-red-200 bg-red-50/40',   badge: 'bg-red-100 text-red-700 border-red-200',   dot: 'bg-red-500'   },
-  medium: { label: 'Medium Risk', row: 'border-amber-200 bg-amber-50/40', badge: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-400' },
-  low:    { label: 'Low Risk',    row: 'border-border bg-muted/20',       badge: 'bg-muted text-muted-foreground border-border', dot: 'bg-slate-400' },
+  high:   { label: 'High Risk',   row: 'border-red-500/30 bg-red-500/10',   badge: 'bg-red-500/10 text-red-400 border-red-500/30',   dot: 'bg-red-500'   },
+  medium: { label: 'Medium Risk', row: 'border-amber-500/30 bg-amber-500/10', badge: 'bg-amber-500/10 text-amber-400 border-amber-500/30', dot: 'bg-amber-400' },
+  low:    { label: 'Low Risk',    row: 'border-border bg-muted/20',           badge: 'bg-muted text-muted-foreground border-border',         dot: 'bg-slate-400' },
 };
 
 const OVERALL_RISK_CONFIG = {

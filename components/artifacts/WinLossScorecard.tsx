@@ -63,7 +63,7 @@ export function WinLossScorecard({ output, competitor, product }: Props) {
       <div className="grid grid-cols-2 gap-3">
         {/* Competitor wins (where competitor beats you) */}
         {competitorWins.length > 0 && (
-          <div className="rounded-xl border border-red-100 bg-red-50/30 p-3 flex flex-col gap-0.5">
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 flex flex-col gap-0.5">
             <p className="text-[10px] font-mono uppercase text-red-500 tracking-wider mb-1">Where <span className="font-bold">{competitorLabel}</span> wins</p>
             {competitorWins.slice(0, 4).map((r, i) => (
               <ReasonRow key={i} reason={r} type="loss" />
@@ -73,7 +73,7 @@ export function WinLossScorecard({ output, competitor, product }: Props) {
 
         {/* Competitor losses (where competitor loses to you) */}
         {competitorLosses.length > 0 && (
-          <div className="rounded-xl border border-emerald-100 bg-emerald-50/30 p-3 flex flex-col gap-0.5">
+          <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 flex flex-col gap-0.5">
             <p className="text-[10px] font-mono uppercase text-emerald-600 tracking-wider mb-1">Where <span className="font-bold">{productLabel}</span> wins</p>
             {competitorLosses.slice(0, 4).map((r, i) => (
               <ReasonRow key={i} reason={r} type="win" />

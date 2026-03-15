@@ -30,7 +30,7 @@ export function PricingTable({ output }: Props) {
       {competitorPricing.length > 0 && (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {competitorPricing.map((tier, i) => (
-            <div key={i} className="veracity-card p-4 flex flex-col gap-2">
+            <div key={i} className="v-card p-4 flex flex-col gap-2">
               <div className="flex items-baseline justify-between">
                 <span className="font-semibold text-foreground text-sm">{tier.tierName}</span>
                 <span className="font-mono text-accent text-sm font-bold">{tier.price}</span>

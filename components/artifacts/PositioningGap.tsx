@@ -60,7 +60,7 @@ export function PositioningGap({ output, product, competitor }: Props) {
               {gap.opportunity && (
                 <div className="flex items-start gap-1.5 pt-2 border-t border-border/50">
                   <span className="text-emerald-500 shrink-0 text-xs">→</span>
-                  <p className="text-xs text-emerald-700 leading-snug">{gap.opportunity}</p>
+                  <p className="text-xs text-emerald-500 leading-snug">{gap.opportunity}</p>
                 </div>
               )}
             </div>

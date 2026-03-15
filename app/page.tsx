@@ -12,6 +12,7 @@ import {
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
+import { useTheme } from '@/lib/theme';
 
 /* ─── Types ─────────────────────────────────────────────── */
 type SourceLink   = { title: string; url: string };
@@ -96,12 +97,12 @@ function readFileAsBase64(file: File): Promise<string> {
 }
 
 /* ─── Confidence badge ───────────────────────────────────── */
-function ConfidenceBadge({ level, isDark }: { level?: string; isDark: boolean }) {
+function ConfidenceBadge({ level }: { level?: string }) {
   if (!level) return null;
   const styles: Record<string, { color: string; bg: string; border: string }> = {
-    high:   { color: '#10b981', bg: isDark ? 'rgba(16,185,129,0.1)'  : 'rgba(16,185,129,0.08)',  border: 'rgba(16,185,129,0.25)'  },
-    medium: { color: '#f59e0b', bg: isDark ? 'rgba(245,158,11,0.1)'  : 'rgba(245,158,11,0.08)',  border: 'rgba(245,158,11,0.25)'  },
-    low:    { color: '#6b7280', bg: isDark ? 'rgba(107,114,128,0.1)' : 'rgba(107,114,128,0.08)', border: 'rgba(107,114,128,0.2)'  },
+    high:   { color: '#10b981', bg: 'rgba(16,185,129,0.12)',  border: 'rgba(16,185,129,0.3)'  },
+    medium: { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)',  border: 'rgba(245,158,11,0.3)'  },
+    low:    { color: '#6b7280', bg: 'rgba(107,114,128,0.12)', border: 'rgba(107,114,128,0.25)' },
   };
   const s = styles[level] ?? styles.low;
   return (
@@ -113,10 +114,10 @@ function ConfidenceBadge({ level, isDark }: { level?: string; isDark: boolean })
 }
 
 /* ─── Sidebar agent row ──────────────────────────────────── */
-function SidebarAgentRow({ domain, run, isDark }: { domain: Domain; run?: AgentRun; isDark: boolean }) {
+function SidebarAgentRow({ domain, run }: { domain: Domain; run?: AgentRun }) {
+  const { isDark, textMuted, textSubtle } = useTheme();
   const meta   = DOMAIN_META[domain];
   const status = run?.status ?? 'idle';
-  const fg     = isDark ? 'var(--foreground-muted)' : 'var(--foreground-muted)';
 
   return (
     <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-md">
@@ -128,8 +129,8 @@ function SidebarAgentRow({ domain, run, isDark }: { domain: Domain; run?: AgentR
       </div>
       <span className="text-[12px] flex-1 truncate" style={{
         color: status === 'running'   ? meta.color :
-               status === 'completed' ? 'var(--foreground)' :
-               status === 'failed'    ? '#ef4444' : fg,
+               status === 'completed' ? undefined :
+               status === 'failed'    ? '#ef4444' : textSubtle,
         fontWeight: status === 'running' ? 500 : 400,
       }}>
         {meta.short}
@@ -141,7 +142,7 @@ function SidebarAgentRow({ domain, run, isDark }: { domain: Domain; run?: AgentR
         </span>
       )}
       {status === 'completed' && (run as any)?.confidence && (
-        <ConfidenceBadge level={(run as any).confidence} isDark={isDark} />
+        <ConfidenceBadge level={(run as any).confidence} />
       )}
     </div>
   );
@@ -149,11 +150,12 @@ function SidebarAgentRow({ domain, run, isDark }: { domain: Domain; run?: AgentR
 
 /* ─── Agent card ─────────────────────────────────────────── */
 function AgentCard({
-  domain, run, output, isExpanded, isDark, onClick,
+  domain, run, output, isExpanded, onClick,
 }: {
   domain: Domain; run?: AgentRun; output?: AgentOutput;
-  isExpanded: boolean; isDark: boolean; onClick: () => void;
+  isExpanded: boolean; onClick: () => void;
 }) {
+  const { isDark, surface, border, textMuted, textSubtle } = useTheme();
   const meta      = DOMAIN_META[domain];
   const status    = run?.status ?? 'idle';
   const snippet   = output?.facts?.[0] ?? output?.interpretation?.[0];
@@ -163,7 +165,7 @@ function AgentCard({
     ? meta.color
     : status === 'running'
     ? meta.border
-    : 'var(--border)';
+    : border;
 
   const bgTint = (status === 'running' || status === 'completed')
     ? (isDark ? meta.bg : meta.bgLight)
@@ -269,8 +271,7 @@ function AgentCard({
 export default function VeracityDashboard() {
   const router   = useRouter();
   const supabase = createClient();
-
-  const [isDark, setIsDark]               = useState(true);
+  const { isDark, toggle: toggleTheme, surface, surface2, border, borderStrong, text, textMuted, textSubtle } = useTheme();
   const [messages, setMessages]           = useState<Message[]>([]);
   const [inputValue, setInputValue]       = useState('');
   const [isLoading, setIsLoading]         = useState(false);
@@ -473,16 +474,14 @@ export default function VeracityDashboard() {
 
   const expandedOutput = expandedDomain ? getOutputForDomain(expandedDomain) : null;
 
-  /* ─ Inline style helpers ─ */
-  const sidebarBg = isDark ? '#0d0d0d' : '#ffffff';
-  const headerBg  = isDark ? 'rgba(13,13,13,0.9)' : 'rgba(255,255,255,0.9)';
-  const borderC   = isDark ? '#262626' : '#e5e5e5';
-  const textMain  = isDark ? '#f2f2f2' : '#111111';
-  const textMuted = isDark ? '#a0a0a0' : '#555555';
-  const textSubtle = isDark ? '#555555' : '#999999';
-  const cardBg    = isDark ? '#111111' : '#ffffff';
-  const cardBg2   = isDark ? '#161616' : '#f9f9f9';
-  const inputBg   = isDark ? '#0d0d0d' : '#f4f4f4';
+  /* ─ Inline style helpers (from ThemeContext) ─ */
+  const sidebarBg  = surface;
+  const headerBg   = isDark ? 'rgba(17,17,17,0.92)' : 'rgba(255,255,255,0.92)';
+  const borderC    = border;
+  const textMain   = text;
+  const cardBg     = surface;
+  const cardBg2    = surface2;
+  const inputBg    = surface2;
 
   return (
     <div className={isDark ? '' : 'light'} style={{ display: 'contents' }}>
@@ -650,7 +649,7 @@ export default function VeracityDashboard() {
 
           {/* Theme toggle */}
           <button
-            onClick={() => setIsDark(v => !v)}
+            onClick={toggleTheme}
             className="w-8 h-8 rounded-md flex items-center justify-center transition-colors shrink-0"
             style={{ border: `1px solid ${borderC}`, background: isDark ? '#1a1a1a' : '#f0f0f0', color: textMuted }}
             title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}

@@ -25,7 +25,7 @@ function CustomTooltip({ active, payload, label }: any) {
   if (active && payload && payload.length) {
     const d: TrendDataPoint = payload[0].payload;
     return (
-      <div className="bg-white border border-border rounded-xl shadow-lg p-3 text-xs max-w-[220px]">
+      <div className="bg-card border border-border rounded-xl shadow-lg p-3 text-xs max-w-[220px]">
         <p className="font-mono font-medium text-foreground mb-1">{d.keyword}</p>
         <p className="text-muted-foreground leading-relaxed">{d.signal}</p>
         <p className="text-[10px] text-muted-foreground mt-1 font-mono">Source: {d.source}</p>
