@@ -120,8 +120,8 @@ Produce a JSON object with this exact shape:
     const clean = text.replace(/```jsons*/i,'').replace(/```s*/i,'').replace(/s*```$/i,'').trim(); parsed = JSON.parse(clean);
   } catch {
     parsed = {
-      facts: rawContent.slice(0, 4),
-      interpretation: ['Analysis could not be synthesised due to an error.'],
+      facts: rawContent.slice(0, 4).map(s => s.replace(/^\[[^\]]+\]\s*/, '')).filter(s => s.length > 15),
+      interpretation: ['Analysis synthesis is temporarily unavailable. Raw data signals are shown below.'],
       trends: [],
       categoryOutlook: 'emerging',
       keySignals: [],

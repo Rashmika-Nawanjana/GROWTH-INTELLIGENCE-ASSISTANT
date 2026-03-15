@@ -147,8 +147,8 @@ Dimensions to analyse: Value Framing, Audience Language, Category Claim, Emotion
     const clean = text.replace(/```jsons*/i,'').replace(/```s*/i,'').replace(/s*```$/i,'').trim(); parsed = JSON.parse(clean);
   } catch {
     parsed = {
-      facts: rawContent.slice(0, 3),
-      interpretation: ['Positioning synthesis encountered an error.'],
+      facts: rawContent.slice(0, 3).map(s => s.replace(/^\[[^\]]+\]\s*/, '')).filter(s => s.length > 15),
+      interpretation: ['Analysis synthesis is temporarily unavailable. Raw data signals are shown below.'],
       yourPositioning: '',
       competitorPositioning: '',
       gaps: [],

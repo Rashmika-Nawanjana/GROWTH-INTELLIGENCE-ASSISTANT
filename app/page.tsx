@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Send, Plus, MessageSquare, Search, ChevronRight, Check, RefreshCw, ArrowUpRight, Clock, ShieldCheck, Database, LogOut, User } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput } from '@/lib/agents/types';
+import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
 
 type SourceLink = { title: string; url: string };
 
@@ -372,56 +373,71 @@ export default function VeracityChat() {
                           </div>
                         )}
 
-                        {/* Per-domain agent findings (expandable) */}
+                        {/* Inline Artifacts — one card per agent with domain-specific visualization */}
                         {msg.orchestratorOutput?.outputs && msg.orchestratorOutput.outputs.length > 0 && (
-                          <div className="flex flex-col gap-2 pt-2 border-t border-border/50">
-                            <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-1">Agent Findings</h3>
-                            {msg.orchestratorOutput.outputs.map((output) => (
-                              <div key={output.domain} className="rounded-xl border border-border overflow-hidden">
-                                <button
-                                  onClick={() => setExpandedDomain(expandedDomain === `${msg.id}-${output.domain}` ? null : `${msg.id}-${output.domain}`)}
-                                  className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/70 transition-colors text-left"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs font-mono font-medium text-foreground capitalize">{output.domain.replace(/-/g, ' ')}</span>
-                                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                                      output.confidence === 'high' ? 'bg-emerald-50 text-emerald-700' :
-                                      output.confidence === 'medium' ? 'bg-amber-50 text-amber-700' :
-                                      'bg-muted text-muted-foreground'
-                                    }`}>{output.confidence}</span>
-                                  </div>
-                                  <ChevronRight size={14} className={`text-muted-foreground transition-transform ${expandedDomain === `${msg.id}-${output.domain}` ? 'rotate-90' : ''}`} />
-                                </button>
-                                {expandedDomain === `${msg.id}-${output.domain}` && (
-                                  <div className="px-4 py-3 flex flex-col gap-3 bg-white">
-                                    {output.facts.length > 0 && (
-                                      <div>
-                                        <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Facts</p>
-                                        <ul className="flex flex-col gap-1">
-                                          {output.facts.map((f, i) => (
-                                            <li key={i} className="text-sm text-foreground flex items-start gap-1.5">
-                                              <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>{f}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    {output.interpretation.length > 0 && (
-                                      <div>
-                                        <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5">Interpretation</p>
-                                        <ul className="flex flex-col gap-1">
-                                          {output.interpretation.map((interp, i) => (
-                                            <li key={i} className="text-sm text-muted-foreground flex items-start gap-1.5">
-                                              <span className="text-accent mt-0.5 shrink-0">›</span>{interp}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
+                          <div className="flex flex-col gap-3 pt-2 border-t border-border/50">
+                            {msg.orchestratorOutput.outputs.map((output) => {
+                              const domainLabel = output.domain.replace(/-/g, ' ');
+                              const isExpanded = expandedDomain === `${msg.id}-${output.domain}`;
+                              return (
+                                <div key={output.domain} className="rounded-xl border border-border overflow-hidden">
+                                  {/* Domain header — always visible, click to expand/collapse */}
+                                  <button
+                                    onClick={() => setExpandedDomain(isExpanded ? null : `${msg.id}-${output.domain}`)}
+                                    className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/70 transition-colors text-left"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-mono font-medium text-foreground capitalize">{domainLabel}</span>
+                                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                        output.confidence === 'high' ? 'bg-emerald-50 text-emerald-700' :
+                                        output.confidence === 'medium' ? 'bg-amber-50 text-amber-700' :
+                                        'bg-muted text-muted-foreground'
+                                      }`}>{output.confidence}</span>
+                                    </div>
+                                    <ChevronRight size={14} className={`text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                                  </button>
+
+                                  {/* Expanded: artifact + facts/interpretation */}
+                                  {isExpanded && (
+                                    <div className="px-4 py-4 flex flex-col gap-4 bg-white">
+                                      {/* Domain-specific artifact visualization */}
+                                      <ArtifactRenderer
+                                        output={output}
+                                        product={msg.orchestratorOutput!.product}
+                                      />
+
+                                      {/* Facts */}
+                                      {output.facts.filter(f => !f.startsWith('[')).length > 0 && (
+                                        <div>
+                                          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5 tracking-wider">Key Facts</p>
+                                          <ul className="flex flex-col gap-1">
+                                            {output.facts.filter(f => !f.startsWith('[')).map((f, i) => (
+                                              <li key={i} className="text-sm text-foreground flex items-start gap-1.5">
+                                                <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>{f}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+
+                                      {/* Interpretation */}
+                                      {output.interpretation.length > 0 && (
+                                        <div>
+                                          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5 tracking-wider">Analysis</p>
+                                          <ul className="flex flex-col gap-1">
+                                            {output.interpretation.map((interp, i) => (
+                                              <li key={i} className="text-sm text-muted-foreground flex items-start gap-1.5">
+                                                <span className="text-accent mt-0.5 shrink-0">›</span>{interp}
+                                              </li>
+                                            ))}
+                                          </ul>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         )}
 

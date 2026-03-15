@@ -144,7 +144,7 @@ async function synthesize(
     interpretation: o.interpretation.slice(0, 3),
   }));
 
-  const prompt = `You are the synthesis layer of a multi-agent growth intelligence system.
+  const prompt = `You are the synthesis layer of a multi-agent growth intelligence system. Your job is to produce a clean, direct, well-written answer.
 
 Original query: "${query}"
 ${priorSummary ? `Prior conversation context:\n${priorSummary}\n` : ''}
@@ -152,24 +152,26 @@ Agent findings from ${outputs.length} specialist agents:
 ${JSON.stringify(outputSummaries, null, 2)}
 
 Rules:
-- Give a specific, direct answer grounded in the agent findings above — no generic advice
-- Reference facts from specific domains (e.g. "Market trends data shows...")
-- Separate what you KNOW (facts) from what you INFER (interpretation)
-- Keep the answer under 200 words
+1. If the query asks a FACTUAL question (revenue, funding amount, year founded, etc.), lead with the direct answer in the first sentence.
+2. Write in clean prose — no raw tool labels like [WEB], [NEWS], [REDDIT]. Never output bracket prefixes.
+3. Reference insights by domain only when relevant (e.g. "Competitive data shows...").
+4. Be specific and concrete — cite actual company names, numbers, trends from the findings.
+5. Keep the "answer" field under 180 words. Make it readable and insightful.
+6. Only include recommendations if directly actionable from the findings. 2-3 max.
 
 Return ONLY valid JSON (no markdown, no fences):
 {
-  "answer": "string — direct answer to the query, referencing agent findings",
+  "answer": "string — direct, clean prose answer. Start with the most important finding. No raw tool labels.",
   "recommendations": [
     {
-      "title": "string",
-      "rationale": "string — why this matters, grounded in findings",
-      "evidence": ["string"],
+      "title": "string — short action title",
+      "rationale": "string — 1-2 sentences grounded in specific findings",
+      "evidence": ["string — specific fact or quote from findings"],
       "confidence": "high" | "medium" | "low",
       "priority": "immediate" | "short-term" | "strategic"
     }
   ],
-  "followUps": ["string — 3 follow-up questions"]
+  "followUps": ["string — 3 specific follow-up questions the user would naturally ask next"]
 }`;
 
   try {
@@ -186,6 +188,7 @@ Return ONLY valid JSON (no markdown, no fences):
       followUps: (parsed.followUps as string[]) ?? [],
     };
   } catch (err) {
+    console.error('[Orchestrator synthesis error]', err instanceof Error ? err.message : err);
     return {
       answer: buildFallbackAnswer(outputs, query),
       recommendations: [],
@@ -195,11 +198,17 @@ Return ONLY valid JSON (no markdown, no fences):
 }
 
 function buildFallbackAnswer(outputs: AgentOutput[], query: string): string {
-  if (outputs.length === 0) return `No signal data could be retrieved for: "${query}". Check your API keys.`;
-  const lines = outputs.map(o =>
-    `**${o.domain}**: ${o.facts.slice(0, 2).join(' ')}`
-  );
-  return lines.join('\n\n');
+  if (outputs.length === 0) return `I couldn't retrieve signal data for "${query}". Please check your API keys and try again.`;
+  // Produce clean prose from agent outputs, filtering out raw tool prefixes
+  const cleanFacts = outputs
+    .flatMap(o => o.facts)
+    .filter(f => !f.startsWith('['))
+    .slice(0, 4);
+  const domains = outputs.map(o => o.domain.replace(/-/g, ' ')).join(', ');
+  if (cleanFacts.length > 0) {
+    return `Based on intelligence gathered across ${domains}:\n\n${cleanFacts.map(f => `• ${f}`).join('\n')}`;
+  }
+  return `Intelligence gathered from ${outputs.length} agents covering: ${domains}. Expand the Agent Findings below for detailed insights.`;
 }
 
 // ── Main orchestrator ─────────────────────────────────────────────────────────
@@ -229,8 +238,8 @@ export async function orchestrate(
     priorContext: priorContext || undefined,
   };
 
-  // Step 2: Select agents to run
-  const agentsToRun = ALL_AGENTS.filter(a => domains.includes(a.id));
+  // Step 2: Always run all 6 agents for full intelligence coverage
+  const agentsToRun = ALL_AGENTS;
 
   // Initialise agent run tracking
   const agentRuns: AgentRun[] = agentsToRun.map(a => ({
