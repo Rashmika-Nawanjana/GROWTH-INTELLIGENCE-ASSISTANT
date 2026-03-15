@@ -199,3 +199,101 @@ REDDIT_CLIENT_SECRET=  # Reddit OAuth2
 | Intelligence Quality | 20% | Multi-source, confidence-scored, grounded |
 | Scalability / Cost | 15% | Cost-per-query <$0.05, cloud-deployable |
 | Demo Strength | 15% | Live on Vector Agents + generalise to another product |
+
+---
+
+## Three Hard Rules (Non-Negotiable from Brief)
+
+1. **Not a chatbot** — Findings render as interfaces (TrendChart, HeatMap, ScoreCard) inside the conversation. Never links, never separate windows, never plain text dumps.
+2. **Not one model call** — Genuine multi-agent coordination: multiple steps, tool calls, parallel threads. The orchestrator must fan out to ≥3 specialist agents per query.
+3. **Live signal only** — Every insight must be grounded in real-time fetched data (SerpAPI, Firecrawl, Reddit, HN). No training-data responses. Every claim carries a source URL and confidence level.
+
+---
+
+## Conversational Memory — Critical Requirement
+
+This is **not a popup chatbot**. The system must maintain deep conversational memory:
+
+### Rules
+- **Never reset context between messages** — each follow-up query builds on all prior context in the session.
+- **Memory is stateful, not stateless** — prior findings, agent outputs, and established facts persist across the entire conversation.
+- **New signals update conclusions** — if a follow-up query contradicts or extends a prior finding, the system explicitly notes the update and revises its position.
+- **No "As I mentioned earlier..." anti-patterns** — silently carry context forward; don't narrate the memory.
+- **Domain context carries forward** — if the user establishes the product is "Vector Agents" in message 1, agents must never ask again in messages 2–10.
+
+### Implementation
+- Store full conversation history in React state and send it with every POST to `/api/chat`
+- API route passes prior messages to the orchestrator
+- Orchestrator includes prior agent findings in the system prompt for follow-up classification
+- The synthesis step must reference prior conclusions when constructing the new response
+
+---
+
+## Multi-Agent Architecture Requirements
+
+### Minimum Agent Count: 6
+The six specialist agents must always be available:
+1. `market-trends` — Market & Trend Sensing
+2. `competitive` — Competitive Landscape & Feature Bets
+3. `win-loss` — Win / Loss Intelligence
+4. `pricing` — Pricing & Packaging Intelligence
+5. `positioning` — Positioning & Messaging Gaps
+6. `adjacent` — Adjacent Market Collision
+
+### Parallelism (7.2 from brief)
+- The orchestrator **must** dispatch multiple agents simultaneously using `Promise.all` or equivalent.
+- Never run agents sequentially unless one explicitly depends on the output of another.
+- Show real-time agent status in `AgentStatus.tsx` — users must see parallel execution happening.
+
+### Deep Research — Multi-hop (7.3 from brief)
+- Agents must follow threads: Find → Deepen → Cross-reference → Surface with confidence.
+- A single SerpAPI call is not sufficient. Each agent should perform 2–4 tool calls minimum.
+
+### Lifecycle & Failure Handling (7.4 from brief)
+- Agent status must be visible: `pending` → `running` → `completed` | `failed`
+- If one agent fails, others continue — graceful degradation, never full crash.
+- Audit trail: each finding records which agent produced it and which tool calls backed it.
+
+### Structured Outputs (7.5 from brief)
+All agent outputs must conform to the typed schema in `lib/agents/types.ts`:
+- `confidence: 'high' | 'medium' | 'low'`
+- `sources: { url: string; title: string; timestamp: string }[]`
+- `facts: string[]` — verifiable claims from sources
+- `interpretation: string[]` — analyst synthesis (clearly separated from facts)
+
+---
+
+## Signal Source Requirements (7.1 from brief)
+
+Each query should draw from **multiple** of these signal types:
+
+| Signal | Tool | Notes |
+|--------|------|-------|
+| Web search / news | `lib/tools/serpapi.ts` | Google Trends, News, Ads Transparency |
+| Product pages / reviews | `lib/tools/firecrawl.ts` | Any URL → LLM-ready markdown |
+| Developer / founder sentiment | `lib/tools/hn-algolia.ts` | HN Algolia, no key needed |
+| User voice / complaints | `lib/tools/reddit.ts` | OAuth2, real buyer signals |
+| Job postings | SerpAPI jobs or Firecrawl | Hiring signals = intent signal |
+| Funding / patents | Firecrawl → Crunchbase / USPTO | Pre-launch technical signal |
+
+---
+
+## Demo Scenario (Reference Product)
+
+The reference product is **Vector Agents** (vectoragents.ai — AI-powered digital workers).
+
+The system must answer these three live demo queries convincingly:
+1. *"Is Lilian competitive in the AI SDR market right now? Where does Vector stand?"*
+2. *"Is the digital workers category accelerating or consolidating — and what does that mean for Vector's roadmap?"*
+3. *"What should Vector Agents build or reposition over the next six months to capture emerging demand?"*
+
+**The solution must generalise to any product.** Vector Agents is the example, not the constraint. During demo, generalize to a second product to prove this.
+
+---
+
+## Demo Tips (from brief)
+
+- **Show agents working, not just output** — judges assess process depth.
+- The `AgentStatus.tsx` panel must be visible during execution showing parallel agent runs.
+- Architecture walkthrough required: explicitly show multi-agent coordination, not a wrapper.
+- Demo script is 10 minutes: 1 min problem framing, 2 min live query, 2 min artifact walkthrough, 1 min memory follow-up, 2 min generalization, 2 min architecture.
