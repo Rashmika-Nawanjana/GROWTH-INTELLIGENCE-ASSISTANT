@@ -9,7 +9,9 @@
       "Read(//d/Projects/growth-intelligence-assistant/lib/agents/**)",
       "Bash(done)",
       "Bash(npm run:*)",
-      "Bash(node -e \":*)"
+      "Bash(node -e \":*)",
+      "WebFetch(domain:vercel.com)",
+      "WebFetch(domain:geist.vercel.app)"
     ]
   }
 }
