@@ -53,3 +53,31 @@ export interface AdLibraryResult {
   themes: string[];
   estimatedSpend?: string;
 }
+
+// Meta Ad Library
+export interface MetaAd {
+  id: string;
+  page_name: string;
+  ad_creative_body?: string;
+  ad_creative_link_title?: string;
+  ad_delivery_start_time?: string;
+  spend?: { lower_bound: string; upper_bound: string };
+  ad_snapshot_url?: string;
+}
+
+// LinkedIn Ad Library
+export interface LinkedInAd {
+  advertiser: string;
+  adCopy: string;
+  url: string;
+}
+
+// USPTO Patents
+export interface Patent {
+  patent_number: string;
+  patent_title: string;
+  patent_abstract: string;
+  patent_date: string;
+  assignee_organization?: string;
+  patent_url: string;
+}
