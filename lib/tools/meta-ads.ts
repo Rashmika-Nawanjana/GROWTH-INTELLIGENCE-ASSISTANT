@@ -1,70 +1,81 @@
 import { getCached, setCache } from '../supabase';
-import type { ToolResult } from './types';
+import { scrapePage } from './firecrawl';
+import type { ToolResult, MetaAd } from './types';
 
-const BASE_URL = 'https://graph.facebook.com/v19.0/ads_archive';
-const ACCESS_TOKEN = process.env.META_ADS_TOKEN ?? '';
+// ── Meta Ad Library — browser scrape via Firecrawl ───────────────────────────
+// The official API only covers political/EU ads.
+// The public Ad Library page covers all advertisers with no token required.
 
-export interface MetaAd {
-  id: string;
-  page_name: string;
-  ad_creative_body?: string;
-  ad_creative_link_title?: string;
-  ad_delivery_start_time?: string;
-  spend?: { lower_bound: string; upper_bound: string };
-  impressions?: { lower_bound: string; upper_bound: string };
-  ad_snapshot_url?: string;
+const AD_LIBRARY_BASE = 'https://www.facebook.com/ads/library';
+
+function buildAdLibraryUrl(advertiserName: string): string {
+  const params = new URLSearchParams({
+    active_status: 'all',
+    ad_type: 'all',
+    country: 'US',
+    q: advertiserName,
+    search_type: 'keyword_unordered',
+  });
+  return `${AD_LIBRARY_BASE}/?${params}`;
+}
+
+// Extract ad copy snippets from scraped markdown
+function parseAdsFromMarkdown(markdown: string, advertiserName: string): MetaAd[] {
+  const ads: MetaAd[] = [];
+
+  // Split on common ad boundary patterns in the scraped content
+  const blocks = markdown
+    .split(/\n{2,}/)
+    .map(b => b.trim())
+    .filter(b => b.length > 30 && b.length < 1000);
+
+  blocks.slice(0, 15).forEach((block, i) => {
+    // Skip nav/footer noise
+    if (/cookie|privacy|terms|sign in|log in/i.test(block)) return;
+
+    ads.push({
+      id: `scraped-${i}`,
+      page_name: advertiserName,
+      ad_creative_body: block,
+      ad_snapshot_url: buildAdLibraryUrl(advertiserName),
+    });
+  });
+
+  return ads.slice(0, 8);
 }
 
 export async function searchMetaAds(
   advertiserName: string,
-  country = 'US',
-  limit = 15
+  _country = 'US',
+  _limit = 15,
 ): Promise<ToolResult<MetaAd[]>> {
-  const cacheKey = `meta:${advertiserName}:${country}`;
+  const cacheKey = `meta:browser:${advertiserName}`;
   const cached = await getCached('meta_ads', cacheKey);
   if (cached) return { ...(cached as ToolResult<MetaAd[]>), cached: true };
 
-  if (!ACCESS_TOKEN) {
-    return {
-      data: [],
-      source: 'Meta Ad Library',
-      timestamp: new Date().toISOString(),
-      confidence: 0,
-      cached: false,
-    };
-  }
-
-  const params = new URLSearchParams({
-    access_token: ACCESS_TOKEN,
-    search_terms: advertiserName,
-    ad_type: 'ALL',
-    ad_reached_countries: country,
-    limit: String(limit),
-    fields: 'id,page_name,ad_creative_body,ad_creative_link_title,ad_delivery_start_time,spend,impressions,ad_snapshot_url',
-  });
+  const url = buildAdLibraryUrl(advertiserName);
 
   try {
-    const res = await fetch(`${BASE_URL}?${params}`);
-    if (!res.ok) throw new Error(`Meta Ad Library ${res.status}`);
-
-    const json = await res.json() as any;
-    const ads: MetaAd[] = json.data ?? [];
+    const scraped = await scrapePage(url);
+    const ads = parseAdsFromMarkdown(scraped.data.markdown, advertiserName);
 
     const result: ToolResult<MetaAd[]> = {
       data: ads,
-      source: 'Meta Ad Library',
-      sourceUrl: `https://www.facebook.com/ads/library/?q=${encodeURIComponent(advertiserName)}&type=all`,
+      source: 'Meta Ad Library (browser scrape)',
+      sourceUrl: url,
       timestamp: new Date().toISOString(),
-      confidence: ads.length > 0 ? 0.85 : 0,
+      confidence: ads.length > 0 ? 0.7 : 0.3,
       cached: false,
     };
 
     await setCache('meta_ads', cacheKey, result);
     return result;
   } catch {
+    // Graceful degradation — return empty, agents continue without this signal
     return {
       data: [],
-      source: 'Meta Ad Library',
+      source: 'Meta Ad Library (browser scrape)',
+      sourceUrl: url,
       timestamp: new Date().toISOString(),
       confidence: 0,
       cached: false,
@@ -73,7 +84,7 @@ export async function searchMetaAds(
 }
 
 export async function getAdMessaging(advertiserName: string): Promise<string[]> {
-  const result = await searchMetaAds(advertiserName, 'US', 10);
+  const result = await searchMetaAds(advertiserName);
   return result.data
     .map(ad => ad.ad_creative_body ?? ad.ad_creative_link_title ?? '')
     .filter(Boolean)

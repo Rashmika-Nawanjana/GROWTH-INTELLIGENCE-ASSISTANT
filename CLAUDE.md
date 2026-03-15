@@ -272,9 +272,31 @@ Each query should draw from **multiple** of these signal types:
 | Web search / news | `lib/tools/serpapi.ts` | Google Trends, News, Ads Transparency |
 | Product pages / reviews | `lib/tools/firecrawl.ts` | Any URL → LLM-ready markdown |
 | Developer / founder sentiment | `lib/tools/hn-algolia.ts` | HN Algolia, no key needed |
-| User voice / complaints | `lib/tools/reddit.ts` | OAuth2, real buyer signals |
+| User voice / complaints | `lib/tools/reddit.ts` | Public JSON API — **no OAuth key needed** |
+| Meta ad intelligence | `lib/tools/meta-ads.ts` | Firecrawl browser scrape of facebook.com/ads/library |
 | Job postings | SerpAPI jobs or Firecrawl | Hiring signals = intent signal |
 | Funding / patents | Firecrawl → Crunchbase / USPTO | Pre-launch technical signal |
+
+## Tool Strategy — Key Decisions (M2)
+
+### Reddit — No API Key Required
+Use Reddit's **public JSON API** (append `.json` to any Reddit URL). No OAuth, no key, works immediately.
+- Primary: `reddit.ts` calls `reddit.com/search.json` with a `User-Agent` header
+- Fallback: If Reddit blocks or returns 0 results, **automatically falls back to HN Algolia**
+- Never fail silently — always return some signal
+
+### Meta Ad Library — Browser Scrape, No Token
+The official Meta Ad Library API only covers political/EU ads. For competitor ad intelligence (all advertisers), use **Firecrawl to scrape `facebook.com/ads/library`** directly.
+- `meta-ads.ts` builds the public Ad Library search URL and passes it to `scrapePage()`
+- Firecrawl renders the JS-heavy page and returns markdown ad content
+- Graceful degradation: if scrape fails, returns empty array and agents continue
+
+### Fallback Chain
+```
+Reddit public JSON → HN Algolia (auto-fallback on empty/block)
+Meta Ad Library API → Firecrawl browser scrape (no token needed)
+Firecrawl → scrapeBasic() raw fetch (if no API key)
+```
 
 ---
 

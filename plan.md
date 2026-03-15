@@ -20,15 +20,20 @@ Create app/api/chat/route.ts — streaming POST endpoint
 Wire up @google/genai with Gemini 2.0 Flash
 Build orchestrator function that takes user query → classifies domain → dispatches to agents
 Define agent coordination pattern (parallel fan-out, sequential synthesis)
-M2 - Tool Functions
+M2 - Tool Functions ✅ COMPLETE
 
-Create lib/tools/ folder with individual tool modules:
-lib/tools/serpapi.ts — Google search, trends, news
-lib/tools/firecrawl.ts — page scraping to markdown
-lib/tools/reddit.ts — subreddit search via API
-lib/tools/hn-algolia.ts — HN search
-Each tool returns standardized { data, source, timestamp } format
-Set up .env.local with API keys
+lib/tools/serpapi.ts — Google search, trends, news, ads transparency
+lib/tools/firecrawl.ts — page scraping to markdown (+ scrapeBasic fallback)
+lib/tools/reddit.ts — public JSON API (no key) + auto HN Algolia fallback
+lib/tools/hn-algolia.ts — HN search (no key, always available)
+lib/tools/meta-ads.ts — Firecrawl browser scrape of facebook.com/ads/library (no token)
+lib/tools/linkedin-ads.ts — LinkedIn Ad Library scrape via Firecrawl
+lib/tools/patents.ts — USPTO patent search
+
+Tool Strategy Decisions:
+- Reddit: public JSON API (reddit.com/search.json) — no OAuth needed. Auto-falls back to HN Algolia if blocked or returns 0 results.
+- Meta Ads: official API dropped (only covers political/EU ads). Replaced with Firecrawl scrape of public Ad Library page — covers all advertisers.
+- All tools: graceful degradation — never crash agents, always return empty array on failure.
 M3 - Frontend Enhancements
 
 Add streaming response handling (SSE/ReadableStream from API)

@@ -1,5 +1,6 @@
 import { getCached, setCache } from '../supabase';
-import type { ToolResult, RedditPost } from './types';
+import { searchHN } from './hn-algolia';
+import type { ToolResult, RedditPost, HNPost } from './types';
 
 // Reddit public JSON API — no key required
 const BASE_URL = 'https://www.reddit.com';
@@ -13,6 +14,28 @@ function detectSentiment(text: string): 'positive' | 'negative' | 'neutral' {
   if (negScore > posScore) return 'negative';
   if (posScore > negScore) return 'positive';
   return 'neutral';
+}
+
+// ── HN Algolia fallback — used when Reddit blocks or returns empty ─────────────
+async function hnFallback(query: string): Promise<ToolResult<RedditPost[]>> {
+  const hn = await searchHN(query);
+  const posts: RedditPost[] = hn.data.map((p: HNPost) => ({
+    title: p.title,
+    subreddit: 'r/hackernews',
+    score: p.score,
+    url: p.url,
+    snippet: p.title,
+    created: p.created,
+    sentiment: 'neutral' as const,
+  }));
+  return {
+    data: posts,
+    source: 'Hacker News (Reddit fallback)',
+    sourceUrl: 'https://hn.algolia.com',
+    timestamp: new Date().toISOString(),
+    confidence: hn.confidence,
+    cached: false,
+  };
 }
 
 export async function searchReddit(
@@ -41,13 +64,7 @@ export async function searchReddit(
   });
 
   if (!res.ok) {
-    return {
-      data: [],
-      source: 'Reddit',
-      timestamp: new Date().toISOString(),
-      confidence: 0,
-      cached: false,
-    };
+    return hnFallback(query);
   }
 
   const raw = await res.json() as any;
@@ -67,6 +84,9 @@ export async function searchReddit(
         sentiment: detectSentiment(text),
       };
     });
+
+  // Reddit returned nothing — fall back to HN
+  if (posts.length === 0) return hnFallback(query);
 
   const result: ToolResult<RedditPost[]> = {
     data: posts,

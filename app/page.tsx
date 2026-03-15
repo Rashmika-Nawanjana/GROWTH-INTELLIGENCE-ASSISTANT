@@ -4,17 +4,20 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Send, Plus, MessageSquare, Search, ChevronRight, Check, RefreshCw, ArrowUpRight, Clock, ShieldCheck, Database, LogOut, User } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
+import type { AgentRun, OrchestratorOutput } from '@/lib/agents/types';
 
-// Mock Data
 type Message = {
   id: number;
   role: 'user' | 'assistant';
-  type?: 'text' | 'competitive_analysis' | 'recommendations';
+  type?: 'text' | 'competitive_analysis' | 'recommendations' | 'intelligence';
   content: string;
   matrix?: any[];
   sources?: string[];
   suggestions?: string[];
   recommendations?: any[];
+  // Live intelligence fields
+  agentRuns?: AgentRun[];
+  orchestratorOutput?: OrchestratorOutput;
 };
 
 const INITIAL_CONVERSATION: Message[] = [
@@ -98,29 +101,113 @@ export default function VeracityChat() {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  const handleSend = (text: string) => {
-    if (!text.trim()) return;
-    
-    const newUserMsg: Message = { id: Date.now(), role: 'user', content: text };
-    setMessages(prev => [...prev, newUserMsg]);
+  const handleSend = async (text: string) => {
+    if (!text.trim() || isLoading) return;
+
+    const userMsg: Message = { id: Date.now(), role: 'user', content: text };
+
+    // Build history for API from current messages (exclude mock initial data)
+    const history = messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+    setMessages(prev => [...prev, userMsg]);
     setInputValue('');
     setIsLoading(true);
 
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      setMessages(prev => [
-        ...prev,
-        {
-          id: Date.now() + 1,
-          role: 'assistant',
-          type: 'text',
-          content: 'Based on live market data, I\'ve analyzed your request. This is a simulated response demonstrating the interface\'s capability to handle dynamic follow-up questions seamlessly.',
-          sources: ['Internal Knowledge Base', 'Live Web Search'],
-          suggestions: ['Tell me more about this', 'Show me the data sources', 'Summarize the key points']
+    // Placeholder assistant message — updated live as SSE events arrive
+    const assistantId = Date.now() + 1;
+    const placeholder: Message = {
+      id: assistantId,
+      role: 'assistant',
+      type: 'intelligence',
+      content: '',
+      agentRuns: [],
+    };
+    setMessages(prev => [...prev, placeholder]);
+
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: text, history }),
+      });
+
+      if (!res.ok || !res.body) throw new Error(`API error ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n\n');
+        buffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          try {
+            const chunk = JSON.parse(line.slice(6));
+
+            if (chunk.type === 'agent_update') {
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      agentRuns: [
+                        ...(m.agentRuns ?? []).filter(r => r.agentId !== chunk.run.agentId),
+                        chunk.run,
+                      ],
+                    }
+                  : m
+              ));
+            }
+
+            if (chunk.type === 'result') {
+              const out: OrchestratorOutput = chunk.output;
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      content: out.synthesizedAnswer,
+                      type: 'intelligence',
+                      orchestratorOutput: out,
+                      recommendations: out.topRecommendations?.map(r => ({
+                        title: r.title,
+                        rationale: r.rationale,
+                        score: r.confidence === 'high' ? 90 : r.confidence === 'medium' ? 65 : 40,
+                        evidence: r.evidence,
+                        priority: r.priority,
+                      })),
+                      sources: out.outputs?.flatMap(o => o.sources?.map(s => s.title) ?? []).slice(0, 6),
+                      suggestions: out.suggestedFollowUps?.slice(0, 3),
+                    }
+                  : m
+              ));
+            }
+
+            if (chunk.type === 'error') {
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId
+                  ? { ...m, content: `Analysis failed: ${chunk.message}`, type: 'text' }
+                  : m
+              ));
+            }
+          } catch { /* malformed chunk, skip */ }
         }
-      ]);
-    }, 1500);
+      }
+    } catch (err) {
+      setMessages(prev => prev.map(m =>
+        m.id === assistantId
+          ? { ...m, content: 'Failed to connect to intelligence engine. Please try again.', type: 'text' }
+          : m
+      ));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleNewQuery = () => {
@@ -261,17 +348,28 @@ export default function VeracityChat() {
                   ) : (
                     <div className="max-w-[95%] w-full flex flex-col gap-4">
                       
-                      {/* Agent Status Pills (only on first response for effect, or all) */}
-                      {msg.type === 'competitive_analysis' && (
+                      {/* Live Agent Status Pills */}
+                      {msg.agentRuns && msg.agentRuns.length > 0 && (
                         <div className="flex flex-wrap gap-2 mb-1">
-                          {['Trend Sensor', 'Win/Loss', 'Competitive'].map(agent => (
-                            <span key={agent} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-muted text-muted-foreground border border-border flex items-center gap-1">
-                              {agent} <Check size={10} className="text-emerald-500" />
-                            </span>
+                          {msg.agentRuns.map(run => (
+                            run.status === 'running' ? (
+                              <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                                {run.name} <RefreshCw size={10} className="animate-spin" />
+                              </span>
+                            ) : run.status === 'completed' ? (
+                              <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-muted text-muted-foreground border border-border flex items-center gap-1">
+                                {run.name} <Check size={10} className="text-emerald-500" />
+                              </span>
+                            ) : run.status === 'failed' ? (
+                              <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-red-50 text-red-600 border border-red-200 flex items-center gap-1">
+                                {run.name} ✕
+                              </span>
+                            ) : (
+                              <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-muted text-muted-foreground border border-border flex items-center gap-1 opacity-50">
+                                {run.name}
+                              </span>
+                            )
                           ))}
-                          <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
-                            Positioning <RefreshCw size={10} className="animate-spin text-amber-500" style={{ animationDuration: '3s' }} />
-                          </span>
                         </div>
                       )}
 
@@ -368,13 +466,13 @@ export default function VeracityChat() {
               ))
             )}
 
-            {/* Loading Skeleton */}
-            {isLoading && (
+            {/* Loading Skeleton — only shown before any agent updates arrive */}
+            {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
               <div className="flex justify-start animate-in fade-in duration-300">
                 <div className="max-w-[95%] w-full flex flex-col gap-4">
                   <div className="flex gap-2 mb-1">
-                    <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-muted text-muted-foreground border border-border flex items-center gap-1">
-                      Synthesizing <RefreshCw size={10} className="animate-spin text-muted-foreground" />
+                    <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                      Dispatching agents <RefreshCw size={10} className="animate-spin" />
                     </span>
                   </div>
                   <div className="veracity-card p-6 flex flex-col gap-4 w-full max-w-2xl">
