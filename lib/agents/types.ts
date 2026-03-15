@@ -102,6 +102,7 @@ export interface WinReason {
 
 export interface WinLossOutput extends AgentOutput {
   artifactType: 'win-loss-scorecard';
+  competitor: string;
   competitorWins: WinReason[];
   competitorLosses: WinReason[];
   buyerSentiment: 'positive' | 'mixed' | 'negative';
@@ -134,6 +135,7 @@ export interface MessagingGap {
 
 export interface PositioningOutput extends AgentOutput {
   artifactType: 'positioning-gap';
+  competitor: string;
   gaps: MessagingGap[];
   yourPositioning: string;       // how you market yourself
   competitorPositioning: string; // how they market themselves

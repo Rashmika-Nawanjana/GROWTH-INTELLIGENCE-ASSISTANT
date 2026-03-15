@@ -171,6 +171,7 @@ Dimensions to analyse: Value Framing, Audience Language, Category Claim, Emotion
     interpretation: parsed.interpretation ?? [],
     sources,
     generatedAt: new Date().toISOString(),
+    competitor: competitorName,
     yourPositioning: parsed.yourPositioning ?? '',
     competitorPositioning: parsed.competitorPositioning ?? '',
     gaps: (parsed.gaps ?? []) as MessagingGap[],

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, Plus, MessageSquare, Search, ChevronRight, Check, RefreshCw, ArrowUpRight, Clock, ShieldCheck, Database, LogOut, User, Paperclip, X, ImageIcon } from 'lucide-react';
+import { Send, Plus, MessageSquare, Search, ChevronRight, ChevronDown, Check, RefreshCw, ArrowUpRight, Clock, ShieldCheck, Database, LogOut, User, Paperclip, X, ImageIcon, Layers } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, ImageAttachment } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
@@ -52,6 +52,7 @@ export default function VeracityChat() {
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState<Set<number>>(new Set());
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
@@ -216,6 +217,21 @@ export default function VeracityChat() {
   const handleNewQuery = () => {
     setMessages([]);
     setExpandedDomain(null);
+    setShowAdvanced(new Set());
+  };
+
+  const toggleAdvanced = (msgId: number) => {
+    setShowAdvanced(prev => {
+      const next = new Set(prev);
+      if (next.has(msgId)) {
+        next.delete(msgId);
+        // Collapse any open domain when closing advanced view
+        setExpandedDomain(null);
+      } else {
+        next.add(msgId);
+      }
+      return next;
+    });
   };
 
   return (
@@ -364,31 +380,21 @@ export default function VeracityChat() {
                   ) : (
                     <div className="max-w-[95%] w-full flex flex-col gap-4">
 
-                      {/* Agent status pills */}
-                      {msg.agentRuns && msg.agentRuns.length > 0 && (
+                      {/* ── Running pills (shown while agents are still working) ── */}
+                      {msg.agentRuns && msg.agentRuns.some(r => r.status === 'running') && (
                         <div className="flex flex-wrap gap-2">
-                          {msg.agentRuns.map(run => (
-                            run.status === 'running' ? (
-                              <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
-                                {run.name} <RefreshCw size={10} className="animate-spin" />
-                              </span>
-                            ) : run.status === 'completed' ? (
-                              <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-muted text-muted-foreground border border-border flex items-center gap-1">
-                                {run.name} <Check size={10} className="text-emerald-500" />
-                              </span>
-                            ) : run.status === 'failed' ? (
-                              <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-red-50 text-red-600 border border-red-200 flex items-center gap-1">
-                                {run.name} ✕
-                              </span>
-                            ) : null
+                          {msg.agentRuns.filter(r => r.status === 'running').map(run => (
+                            <span key={run.agentId} className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-amber-50 text-amber-700 border border-amber-200 flex items-center gap-1">
+                              {run.name} <RefreshCw size={10} className="animate-spin" />
+                            </span>
                           ))}
                         </div>
                       )}
 
-                      {/* Main answer card */}
+                      {/* ── Main summary card ── */}
                       <div className="veracity-card p-6 flex flex-col gap-5">
 
-                        {/* Synthesized answer */}
+                        {/* Synthesized answer — human-readable prose */}
                         {msg.content && (
                           <div className="text-[15px] leading-relaxed text-foreground whitespace-pre-line">
                             {msg.content}
@@ -401,107 +407,35 @@ export default function VeracityChat() {
                             <h3 className="text-xs font-mono uppercase tracking-wider text-muted-foreground">Strategic Recommendations</h3>
                             {msg.recommendations.map((rec: any, i: number) => (
                               <div key={i} className="p-4 rounded-xl border border-border bg-muted/30 flex flex-col gap-2">
-                                <div className="flex justify-between items-start gap-4">
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                        rec.priority === 'immediate' ? 'bg-red-50 text-red-600 border border-red-200' :
-                                        rec.priority === 'short-term' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                        'bg-blue-50 text-blue-600 border border-blue-200'
-                                      }`}>{rec.priority ?? 'strategic'}</span>
-                                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                                        rec.confidence === 'high' || rec.score >= 80 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
-                                        rec.confidence === 'medium' || rec.score >= 55 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
-                                        'bg-muted text-muted-foreground border border-border'
-                                      }`}>{rec.confidence ?? (rec.score >= 80 ? 'high' : rec.score >= 55 ? 'medium' : 'low')} confidence</span>
-                                    </div>
-                                    <h4 className="font-medium text-foreground mb-1">{rec.title}</h4>
-                                    <p className="text-sm text-muted-foreground leading-relaxed">{rec.rationale}</p>
-                                    {rec.evidence && rec.evidence.length > 0 && (
-                                      <ul className="mt-2 flex flex-col gap-0.5">
-                                        {rec.evidence.map((e: string, ei: number) => (
-                                          <li key={ei} className="text-xs text-muted-foreground flex items-start gap-1.5">
-                                            <span className="text-accent mt-0.5">›</span>{e}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    )}
-                                  </div>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                    rec.priority === 'immediate' ? 'bg-red-50 text-red-600 border border-red-200' :
+                                    rec.priority === 'short-term' ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                    'bg-blue-50 text-blue-600 border border-blue-200'
+                                  }`}>{rec.priority ?? 'strategic'}</span>
+                                  <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded uppercase tracking-wider ${
+                                    rec.confidence === 'high' || rec.score >= 80 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' :
+                                    rec.confidence === 'medium' || rec.score >= 55 ? 'bg-amber-50 text-amber-700 border border-amber-200' :
+                                    'bg-muted text-muted-foreground border border-border'
+                                  }`}>{rec.confidence ?? (rec.score >= 80 ? 'high' : rec.score >= 55 ? 'medium' : 'low')} confidence</span>
                                 </div>
+                                <h4 className="font-medium text-foreground mb-1">{rec.title}</h4>
+                                <p className="text-sm text-muted-foreground leading-relaxed">{rec.rationale}</p>
+                                {rec.evidence && rec.evidence.length > 0 && (
+                                  <ul className="mt-2 flex flex-col gap-0.5">
+                                    {rec.evidence.map((e: string, ei: number) => (
+                                      <li key={ei} className="text-xs text-muted-foreground flex items-start gap-1.5">
+                                        <span className="text-accent mt-0.5">›</span>{e}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
                               </div>
                             ))}
                           </div>
                         )}
 
-                        {/* Inline Artifacts — one card per agent with domain-specific visualization */}
-                        {msg.orchestratorOutput?.outputs && msg.orchestratorOutput.outputs.length > 0 && (
-                          <div className="flex flex-col gap-3 pt-2 border-t border-border/50">
-                            {msg.orchestratorOutput.outputs.map((output) => {
-                              const domainLabel = output.domain.replace(/-/g, ' ');
-                              const isExpanded = expandedDomain === `${msg.id}-${output.domain}`;
-                              return (
-                                <div key={output.domain} className="rounded-xl border border-border overflow-hidden">
-                                  {/* Domain header — always visible, click to expand/collapse */}
-                                  <button
-                                    onClick={() => setExpandedDomain(isExpanded ? null : `${msg.id}-${output.domain}`)}
-                                    className="w-full flex items-center justify-between px-4 py-2.5 bg-muted/40 hover:bg-muted/70 transition-colors text-left"
-                                  >
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-xs font-mono font-medium text-foreground capitalize">{domainLabel}</span>
-                                      <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                                        output.confidence === 'high' ? 'bg-emerald-50 text-emerald-700' :
-                                        output.confidence === 'medium' ? 'bg-amber-50 text-amber-700' :
-                                        'bg-muted text-muted-foreground'
-                                      }`}>{output.confidence}</span>
-                                    </div>
-                                    <ChevronRight size={14} className={`text-muted-foreground transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
-                                  </button>
-
-                                  {/* Expanded: artifact + facts/interpretation */}
-                                  {isExpanded && (
-                                    <div className="px-4 py-4 flex flex-col gap-4 bg-white">
-                                      {/* Domain-specific artifact visualization */}
-                                      <ArtifactRenderer
-                                        output={output}
-                                        product={msg.orchestratorOutput!.product}
-                                      />
-
-                                      {/* Facts */}
-                                      {output.facts.filter(f => !f.startsWith('[')).length > 0 && (
-                                        <div>
-                                          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5 tracking-wider">Key Facts</p>
-                                          <ul className="flex flex-col gap-1">
-                                            {output.facts.filter(f => !f.startsWith('[')).map((f, i) => (
-                                              <li key={i} className="text-sm text-foreground flex items-start gap-1.5">
-                                                <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>{f}
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-
-                                      {/* Interpretation */}
-                                      {output.interpretation.length > 0 && (
-                                        <div>
-                                          <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5 tracking-wider">Analysis</p>
-                                          <ul className="flex flex-col gap-1">
-                                            {output.interpretation.map((interp, i) => (
-                                              <li key={i} className="text-sm text-muted-foreground flex items-start gap-1.5">
-                                                <span className="text-accent mt-0.5 shrink-0">›</span>{interp}
-                                              </li>
-                                            ))}
-                                          </ul>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Sources — clickable links */}
+                        {/* Sources */}
                         {msg.sources && msg.sources.length > 0 && (
                           <div className="flex items-start gap-2 pt-2 border-t border-border/50">
                             <span className="text-xs font-mono text-muted-foreground uppercase shrink-0 mt-0.5">Sources</span>
@@ -520,7 +454,128 @@ export default function VeracityChat() {
                             </div>
                           </div>
                         )}
+
+                        {/* ── Agent summary bar + Advanced View toggle ── */}
+                        {msg.agentRuns && msg.agentRuns.length > 0 && msg.content && (
+                          <div className="flex items-center justify-between pt-3 border-t border-border/50">
+                            {/* Compact agent done chips */}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <Layers size={12} className="text-muted-foreground shrink-0" />
+                              <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">
+                                {msg.agentRuns.filter(r => r.status === 'completed').length} of {msg.agentRuns.length} agents
+                              </span>
+                              <div className="flex gap-1 flex-wrap">
+                                {msg.agentRuns.map(run => (
+                                  <span
+                                    key={run.agentId}
+                                    title={run.name}
+                                    className={`text-[9px] font-mono px-1.5 py-0.5 rounded-full border ${
+                                      run.status === 'completed' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                      run.status === 'failed'    ? 'bg-red-50 text-red-500 border-red-200' :
+                                      'bg-amber-50 text-amber-600 border-amber-200'
+                                    }`}
+                                  >
+                                    {run.name.split(' ')[0]}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Toggle button */}
+                            {msg.orchestratorOutput?.outputs && msg.orchestratorOutput.outputs.length > 0 && (
+                              <button
+                                onClick={() => toggleAdvanced(msg.id)}
+                                className={`flex items-center gap-1.5 text-[11px] font-mono uppercase tracking-wider px-3 py-1.5 rounded-lg border transition-all ${
+                                  showAdvanced.has(msg.id)
+                                    ? 'bg-accent/10 text-accent border-accent/30 hover:bg-accent/20'
+                                    : 'bg-muted text-muted-foreground border-border hover:bg-muted/80 hover:text-foreground'
+                                }`}
+                              >
+                                {showAdvanced.has(msg.id) ? (
+                                  <><X size={11} /> Hide Agent Detail</>
+                                ) : (
+                                  <><Layers size={11} /> Advanced View</>
+                                )}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
+
+                      {/* ── Advanced View panel — all 6 agent detail cards ── */}
+                      {showAdvanced.has(msg.id) && msg.orchestratorOutput?.outputs && msg.orchestratorOutput.outputs.length > 0 && (
+                        <div className="flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground px-1">Agent Intelligence Breakdown</p>
+                          {msg.orchestratorOutput.outputs.map((output) => {
+                            const domainLabel = output.domain.replace(/-/g, ' ');
+                            const isExpanded = expandedDomain === `${msg.id}-${output.domain}`;
+                            const domainIcon: Record<string, string> = {
+                              'market-trends': '📈',
+                              'competitive':   '⚔️',
+                              'win-loss':      '🏆',
+                              'pricing':       '💰',
+                              'positioning':   '📣',
+                              'adjacent':      '🔭',
+                            };
+                            return (
+                              <div key={output.domain} className="rounded-xl border border-border overflow-hidden bg-white">
+                                {/* Domain header */}
+                                <button
+                                  onClick={() => setExpandedDomain(isExpanded ? null : `${msg.id}-${output.domain}`)}
+                                  className="w-full flex items-center justify-between px-4 py-3 bg-muted/30 hover:bg-muted/60 transition-colors text-left"
+                                >
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="text-base">{domainIcon[output.domain] ?? '🔍'}</span>
+                                    <span className="text-sm font-medium text-foreground capitalize">{domainLabel}</span>
+                                    <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                                      output.confidence === 'high'   ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                      output.confidence === 'medium' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                      'bg-muted text-muted-foreground border-border'
+                                    }`}>{output.confidence} confidence</span>
+                                  </div>
+                                  <ChevronDown size={15} className={`text-muted-foreground transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} />
+                                </button>
+
+                                {/* Expandable detail */}
+                                {isExpanded && (
+                                  <div className="px-4 py-4 flex flex-col gap-4 border-t border-border/50">
+                                    <ArtifactRenderer
+                                      output={output}
+                                      product={msg.orchestratorOutput!.product}
+                                    />
+
+                                    {output.facts.filter(f => !f.startsWith('[')).length > 0 && (
+                                      <div>
+                                        <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5 tracking-wider">Key Facts</p>
+                                        <ul className="flex flex-col gap-1">
+                                          {output.facts.filter(f => !f.startsWith('[')).map((f, i) => (
+                                            <li key={i} className="text-sm text-foreground flex items-start gap-1.5">
+                                              <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>{f}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+
+                                    {output.interpretation.length > 0 && (
+                                      <div>
+                                        <p className="text-[10px] font-mono uppercase text-muted-foreground mb-1.5 tracking-wider">Analysis</p>
+                                        <ul className="flex flex-col gap-1">
+                                          {output.interpretation.map((interp, i) => (
+                                            <li key={i} className="text-sm text-muted-foreground flex items-start gap-1.5">
+                                              <span className="text-accent mt-0.5 shrink-0">›</span>{interp}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
 
                       {/* Follow-up suggestions */}
                       {msg.suggestions && msg.suggestions.length > 0 && (

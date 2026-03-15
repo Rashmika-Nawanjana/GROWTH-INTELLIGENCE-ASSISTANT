@@ -6,14 +6,21 @@ import type { PositioningOutput } from '@/lib/agents/types';
 interface Props {
   output: PositioningOutput;
   product: string;
+  competitor: string;
 }
 
-export function PositioningGap({ output, product }: Props) {
+export function PositioningGap({ output, product, competitor }: Props) {
   const { gaps, yourPositioning, competitorPositioning, adThemes } = output;
+  const competitorLabel = competitor && competitor !== 'main competitor' ? competitor : 'Competitor';
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Positioning Gap Analysis</div>
+      <div className="text-xs font-mono text-muted-foreground uppercase tracking-wider">
+        Positioning Gap Analysis
+        <span className="ml-2 text-[10px] font-semibold text-foreground bg-accent/10 border border-accent/20 px-2 py-0.5 rounded">{product}</span>
+        <span className="mx-1 text-muted-foreground">vs</span>
+        <span className="text-[10px] font-semibold text-foreground bg-muted border border-border px-2 py-0.5 rounded">{competitorLabel}</span>
+      </div>
 
       {/* Side-by-side positioning */}
       {(yourPositioning || competitorPositioning) && (
@@ -26,7 +33,7 @@ export function PositioningGap({ output, product }: Props) {
           )}
           {competitorPositioning && (
             <div className="rounded-xl border border-border bg-muted/20 p-3">
-              <p className="text-[10px] font-mono uppercase text-muted-foreground tracking-wider mb-1">Competitor</p>
+              <p className="text-[10px] font-mono uppercase text-muted-foreground tracking-wider mb-1">{competitorLabel}</p>
               <p className="text-xs text-foreground leading-relaxed">{competitorPositioning}</p>
             </div>
           )}
@@ -42,11 +49,11 @@ export function PositioningGap({ output, product }: Props) {
               <span className="text-[10px] font-mono text-accent uppercase tracking-wider">{gap.dimension}</span>
               <div className="grid grid-cols-2 gap-3 text-xs">
                 <div>
-                  <p className="text-muted-foreground mb-0.5">Your message</p>
+                  <p className="text-muted-foreground mb-0.5">{product}</p>
                   <p className="text-foreground leading-snug">{gap.yourMessage}</p>
                 </div>
                 <div>
-                  <p className="text-muted-foreground mb-0.5">Their message</p>
+                  <p className="text-muted-foreground mb-0.5">{competitorLabel}</p>
                   <p className="text-foreground leading-snug">{gap.competitorMessage}</p>
                 </div>
               </div>

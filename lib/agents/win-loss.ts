@@ -163,6 +163,7 @@ Produce JSON:
     interpretation: parsed.interpretation ?? [],
     sources,
     generatedAt: new Date().toISOString(),
+    competitor: competitorName,
     competitorWins: (parsed.competitorWins ?? []) as WinReason[],
     competitorLosses: (parsed.competitorLosses ?? []) as WinReason[],
     buyerSentiment: parsed.buyerSentiment ?? 'mixed',
