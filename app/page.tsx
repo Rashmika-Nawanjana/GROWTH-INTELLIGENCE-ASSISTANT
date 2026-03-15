@@ -2,18 +2,26 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Send, Plus, MessageSquare, Search, ChevronRight, Check, RefreshCw, ArrowUpRight, Clock, ShieldCheck, Database, LogOut, User } from 'lucide-react';
+import { Send, Plus, MessageSquare, Search, ChevronRight, Check, RefreshCw, ArrowUpRight, Clock, ShieldCheck, Database, LogOut, User, Paperclip, X, ImageIcon } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
-import type { AgentRun, OrchestratorOutput } from '@/lib/agents/types';
+import type { AgentRun, OrchestratorOutput, ImageAttachment } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
 
 type SourceLink = { title: string; url: string };
+
+type AttachedImage = {
+  dataUrl: string;   // full data: URL for display
+  data: string;      // base64 only (no prefix) for API
+  mimeType: string;
+  name: string;
+};
 
 type Message = {
   id: number;
   role: 'user' | 'assistant';
   type?: 'text' | 'intelligence';
   content: string;
+  images?: AttachedImage[];
   sources?: SourceLink[];
   suggestions?: string[];
   recommendations?: any[];
@@ -27,6 +35,16 @@ const DEMO_QUERIES = [
   'What should Vector Agents build to capture emerging demand?',
 ];
 
+// Helper: read a File as a base64 data URL
+function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function VeracityChat() {
   const router = useRouter();
   const supabase = createClient();
@@ -36,7 +54,9 @@ export default function VeracityChat() {
   const [expandedDomain, setExpandedDomain] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -58,10 +78,29 @@ export default function VeracityChat() {
     scrollToBottom();
   }, [messages, isLoading]);
 
-  const handleSend = async (text: string) => {
-    if (!text.trim() || isLoading) return;
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    const newImages: AttachedImage[] = await Promise.all(
+      files.map(async (file) => {
+        const dataUrl = await readFileAsBase64(file);
+        const [prefix, data] = dataUrl.split(',');
+        const mimeType = prefix.split(':')[1].split(';')[0];
+        return { dataUrl, data, mimeType, name: file.name };
+      })
+    );
+    setAttachedImages(prev => [...prev, ...newImages]);
+    // Reset so the same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
-    const userMsg: Message = { id: Date.now(), role: 'user', content: text };
+  const handleSend = async (text: string, imagesToSend?: AttachedImage[]) => {
+    const images = imagesToSend ?? attachedImages;
+    // Allow sending if there's text, or images are attached (use a default prompt for image-only)
+    const effectiveText = text.trim() || (images.length > 0 ? 'Analyse the attached image(s).' : '');
+    if (!effectiveText || isLoading) return;
+
+    const userMsg: Message = { id: Date.now(), role: 'user', content: effectiveText, images: images.length > 0 ? images : undefined };
 
     // Build history for API from current messages (exclude mock initial data)
     const history = messages
@@ -70,6 +109,7 @@ export default function VeracityChat() {
 
     setMessages(prev => [...prev, userMsg]);
     setInputValue('');
+    setAttachedImages([]);
     setIsLoading(true);
 
     // Placeholder assistant message — updated live as SSE events arrive
@@ -83,11 +123,14 @@ export default function VeracityChat() {
     };
     setMessages(prev => [...prev, placeholder]);
 
+    // Build image payloads for the API (just data + mimeType, no full dataUrl needed)
+    const imagePayloads: ImageAttachment[] = images.map(img => ({ data: img.data, mimeType: img.mimeType }));
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, history }),
+        body: JSON.stringify({ query: effectiveText, history, images: imagePayloads }),
       });
 
       if (!res.ok || !res.body) throw new Error(`API error ${res.status}`);
@@ -298,7 +341,24 @@ export default function VeracityChat() {
                 <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2 duration-300`} style={{ animationFillMode: 'both', animationDelay: `${idx * 50}ms` }}>
 
                   {msg.role === 'user' ? (
-                    <div className="bg-foreground text-white px-5 py-3.5 rounded-2xl rounded-tr-sm max-w-[85%] text-[15px] leading-relaxed shadow-sm">
+                    <div className="bg-foreground text-white px-5 py-3.5 rounded-2xl rounded-tr-sm max-w-[85%] text-[15px] leading-relaxed shadow-sm flex flex-col gap-3">
+                      {/* Image thumbnails in user bubble */}
+                      {msg.images && msg.images.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {msg.images.map((img, i) => (
+                            <div key={i} className="relative group">
+                              <img
+                                src={img.dataUrl}
+                                alt={img.name}
+                                className="h-24 w-24 object-cover rounded-lg border border-white/20"
+                              />
+                              <div className="absolute inset-0 rounded-lg bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-1">
+                                <span className="text-white text-[9px] font-mono truncate w-full">{img.name}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {msg.content}
                     </div>
                   ) : (
@@ -507,18 +567,68 @@ export default function VeracityChat() {
         {/* Bottom Input Area */}
         <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-background via-background to-transparent pt-12">
           <div className="max-w-3xl mx-auto w-full flex flex-col items-center gap-3">
+
+            {/* Image preview strip */}
+            {attachedImages.length > 0 && (
+              <div className="w-full flex flex-wrap gap-2 px-1">
+                {attachedImages.map((img, i) => (
+                  <div key={i} className="relative group">
+                    <img
+                      src={img.dataUrl}
+                      alt={img.name}
+                      className="h-16 w-16 object-cover rounded-xl border border-border shadow-sm"
+                    />
+                    <button
+                      onClick={() => setAttachedImages(prev => prev.filter((_, idx) => idx !== i))}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-foreground text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                    >
+                      <X size={10} />
+                    </button>
+                    <div className="absolute inset-0 rounded-xl bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Input box */}
             <div className="relative w-full veracity-card rounded-2xl overflow-hidden focus-within:ring-2 focus-within:ring-accent/20 focus-within:border-accent/50 transition-all">
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleFileChange}
+              />
               <input 
                 type="text"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSend(inputValue)}
                 placeholder="Ask a growth intelligence question..."
-                className="w-full h-14 pl-5 pr-14 bg-transparent outline-none text-[15px] placeholder:text-muted-foreground"
+                className="w-full h-14 pl-5 pr-24 bg-transparent outline-none text-[15px] placeholder:text-muted-foreground"
               />
+              {/* Paperclip button */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading}
+                title="Attach image"
+                className="absolute right-14 top-2 bottom-2 w-10 text-muted-foreground hover:text-accent rounded-xl flex items-center justify-center transition-colors disabled:opacity-40"
+              >
+                {attachedImages.length > 0 ? (
+                  <span className="relative">
+                    <ImageIcon size={16} className="text-accent" />
+                    <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-accent text-white text-[8px] flex items-center justify-center font-mono">{attachedImages.length}</span>
+                  </span>
+                ) : (
+                  <Paperclip size={16} />
+                )}
+              </button>
+              {/* Send button */}
               <button 
                 onClick={() => handleSend(inputValue)}
-                disabled={!inputValue.trim() || isLoading}
+                disabled={(!inputValue.trim() && attachedImages.length === 0) || isLoading}
                 className="absolute right-2 top-2 bottom-2 w-10 bg-gradient-signature text-white rounded-xl flex items-center justify-center transition-transform hover:-translate-y-[1px] hover:shadow-md disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-none"
               >
                 <Send size={16} className={inputValue.trim() ? "translate-x-[-1px] translate-y-[1px]" : ""} />

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { orchestrate } from '../../../lib/agents/orchestrator';
-import type { ConversationMessage, AgentRun, OrchestratorOutput } from '../../../lib/agents/types';
+import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment } from '../../../lib/agents/types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 min budget for parallel agents
@@ -16,7 +16,7 @@ function encode(chunk: StreamChunk): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { query: string; history: ConversationMessage[] };
+  let body: { query: string; history: ConversationMessage[]; images?: ImageAttachment[] };
 
   try {
     body = await req.json();
@@ -27,7 +27,7 @@ export async function POST(req: NextRequest) {
     });
   }
 
-  const { query, history = [] } = body;
+  const { query, history = [], images = [] } = body;
 
   if (!query?.trim()) {
     return new Response(JSON.stringify({ error: 'query is required' }), {
@@ -55,6 +55,7 @@ export async function POST(req: NextRequest) {
         query,
         history,
         (agentRun: AgentRun) => { write({ type: 'agent_update', run: agentRun }); },
+        images,
       );
       write({ type: 'result', output: result });
     } catch (err) {

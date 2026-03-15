@@ -178,10 +178,17 @@ export interface Recommendation {
   priority: 'immediate' | 'short-term' | 'strategic';
 }
 
+// ─── Image attachment ────────────────────────────────────────────────────────
+export interface ImageAttachment {
+  data: string;       // base64-encoded image data (no data: prefix)
+  mimeType: string;   // e.g. "image/png", "image/jpeg"
+}
+
 // ─── Chat message ─────────────────────────────────────────────────────────────
 export interface ConversationMessage {
   role: 'user' | 'assistant';
   content: string;
+  images?: ImageAttachment[];
   agentOutput?: OrchestratorOutput;
   timestamp: string;
 }
@@ -201,4 +208,5 @@ export interface AgentContext {
   productUrl?: string;
   competitorUrl?: string;
   priorContext?: string;    // serialised prior conversation findings
+  images?: ImageAttachment[];  // optional visual context from user
 }

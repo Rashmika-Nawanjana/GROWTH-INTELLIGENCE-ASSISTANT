@@ -15,6 +15,7 @@ import type {
   ConversationMessage,
   ConfidenceLevel,
   IntelligenceDomain,
+  ImageAttachment,
 } from './types';
 import { scoreToLevel } from './types';
 
@@ -42,7 +43,8 @@ interface ClassificationResult {
 
 async function classifyQuery(
   query: string,
-  history: ConversationMessage[]
+  history: ConversationMessage[],
+  images: ImageAttachment[] = [],
 ): Promise<ClassificationResult> {
   // Build context from prior messages
   const priorContext = history
@@ -78,9 +80,13 @@ Domain selection rules:
 - Always include at least 3 domains`;
 
   try {
+    // Build multimodal parts: text prompt + any attached images
+    const imageParts = images.map(img => ({
+      inlineData: { mimeType: img.mimeType, data: img.data },
+    }));
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: [{ role: 'user', parts: [{ text: prompt }, ...imageParts] }],
       config: { responseMimeType: 'application/json' },
     });
     const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
@@ -130,6 +136,7 @@ async function synthesize(
   query: string,
   outputs: AgentOutput[],
   history: ConversationMessage[],
+  images: ImageAttachment[] = [],
 ): Promise<{ answer: string; recommendations: Recommendation[]; followUps: string[] }> {
   const priorSummary = history
     .slice(-4)
@@ -175,9 +182,16 @@ Return ONLY valid JSON (no markdown, no fences):
 }`;
 
   try {
+    // Build multimodal parts: text prompt + any attached images
+    const imageParts = images.map(img => ({
+      inlineData: { mimeType: img.mimeType, data: img.data },
+    }));
+    const imageNote = images.length > 0
+      ? `\nThe user has also attached ${images.length} image(s). Reference their visual content (text, UI elements, charts, pricing tables, etc.) directly in your answer.`
+      : '';
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      contents: [{ role: 'user', parts: [{ text: prompt + imageNote }, ...imageParts] }],
       config: { responseMimeType: 'application/json' },
     });
     const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
@@ -216,10 +230,11 @@ export async function orchestrate(
   query: string,
   history: ConversationMessage[],
   onAgentUpdate?: (run: AgentRun) => void,
+  images: ImageAttachment[] = [],
 ): Promise<OrchestratorOutput> {
 
   // Step 1: Classify query and extract context
-  const classification = await classifyQuery(query, history);
+  const classification = await classifyQuery(query, history, images);
 
   const { product, competitor, productUrl, competitorUrl, domains, intent } = classification;
 
@@ -236,6 +251,7 @@ export async function orchestrate(
     productUrl,
     competitorUrl,
     priorContext: priorContext || undefined,
+    images: images.length > 0 ? images : undefined,
   };
 
   // Step 2: Always run all 6 agents for full intelligence coverage
@@ -275,7 +291,7 @@ export async function orchestrate(
     .map(r => r.value as AgentOutput);
 
   // Step 4: Synthesise
-  const { answer, recommendations, followUps } = await synthesize(query, outputs, history);
+  const { answer, recommendations, followUps } = await synthesize(query, outputs, history, images);
 
   // Step 5: Compute overall confidence
   const avgConfidence = outputs.length > 0
