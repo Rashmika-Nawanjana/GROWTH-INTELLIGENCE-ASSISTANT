@@ -6,6 +6,7 @@
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
+  --color-accent-secondary: var(--accent-secondary);
   --color-border: var(--border);
   --color-card: var(--card);
   --color-card-hover: var(--card-hover);
@@ -27,6 +28,7 @@
   --muted:             #161616;
   --muted-foreground:  #777777;
   --accent:            #0070f3;
+  --accent-secondary:  #4D7CFF;
   --accent-fg:         #ffffff;
   --border:            #262626;
   --border-strong:     #404040;
@@ -48,6 +50,7 @@
   --muted:             #f4f4f4;
   --muted-foreground:  #777777;
   --accent:            #0070f3;
+  --accent-secondary:  #4D7CFF;
   --accent-fg:         #ffffff;
   --border:            #e5e5e5;
   --border-strong:     #cccccc;
@@ -68,12 +71,23 @@ body {
 }
 
 /* ─── Card component ─────────────────────────────────────── */
-.v-card {
+.v-card, .veracity-card {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.bg-gradient-signature {
+  background: linear-gradient(135deg, #0052FF 0%, #4D7CFF 100%);
+}
+
+.text-gradient-signature {
+  background: linear-gradient(135deg, #0052FF 0%, #4D7CFF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .v-card-hover:hover {

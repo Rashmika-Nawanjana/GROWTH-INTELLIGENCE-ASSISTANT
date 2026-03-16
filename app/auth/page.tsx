@@ -73,7 +73,7 @@ function AuthForm() {
   return (
     <div className="min-h-screen bg-background flex">
       {/* Left panel — branding */}
-      <div className="hidden lg:flex lg:w-1/2 bg-foreground flex-col justify-between p-12">
+      <div className="hidden lg:flex lg:w-1/2 bg-[#111111] flex-col justify-between p-12">
         <div>
           <h1 className="font-serif text-4xl font-bold text-white tracking-tight">Veracity</h1>
           <p className="text-white/40 text-sm font-mono mt-1 uppercase tracking-widest">Growth Intelligence</p>
@@ -124,7 +124,7 @@ function AuthForm() {
             <button
               onClick={handleGoogleSignIn}
               disabled={googleLoading || loading}
-              className="w-full flex items-center justify-center gap-3 border border-border bg-white hover:bg-muted rounded-xl px-4 py-3 text-sm font-medium text-foreground transition-all hover:-translate-y-[1px] hover:shadow-md disabled:opacity-60 disabled:hover:translate-y-0 mb-5"
+              className="w-full flex items-center justify-center gap-3 border border-border bg-card hover:bg-muted rounded-xl px-4 py-3 text-sm font-medium text-foreground transition-all hover:-translate-y-[1px] hover:shadow-md disabled:opacity-60 disabled:hover:translate-y-0 mb-5"
             >
               {googleLoading ? (
                 <span className="w-5 h-5 border-2 border-border border-t-accent rounded-full animate-spin" />
