@@ -6,7 +6,7 @@ import {
   Send, Plus, Search, ChevronRight, RefreshCw, ArrowUpRight,
   LogOut, User, Layers, X, History, GitBranch,
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
-  CheckCircle2, Circle, AlertCircle, MessageSquarePlus, Paperclip,
+  CheckCircle2, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
@@ -14,7 +14,7 @@ import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMa
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
 import { useTheme } from '@/lib/theme';
 import {
-  createSession, listSessions, saveMessage, loadMessages, type ChatSession, type StoredMessage,
+  createSession, listSessions, saveMessage, loadMessages, deleteSession, type ChatSession, type StoredMessage,
 } from '@/lib/conversations';
 import {
   getUserMemory, extractAndUpdateMemory, buildMemoryContext,
@@ -331,7 +331,33 @@ export default function VeracityDashboard() {
     setExpandedDomain(null);
     setFollowUps([]);
     const stored = await loadMessages(sessionId);
-    setMessages(stored.map((m, i) => hydrateMessage(m, i)));
+    
+    // Separate main messages from follow-ups based on metadata
+    const mainMessages: Message[] = [];
+    const loadedFollowUps: FollowUp[] = [];
+    
+    stored.forEach((m, i) => {
+      const msg = hydrateMessage(m, i);
+      if (m.metadata?.isFollowUp) {
+        if (m.role === 'user') {
+          loadedFollowUps.push({
+            id: i,
+            question: m.content,
+            answer: '',
+            loading: false,
+          });
+        } else if (m.role === 'assistant' && loadedFollowUps.length > 0) {
+          const lastIndex = loadedFollowUps.length - 1;
+          loadedFollowUps[lastIndex].answer = m.content;
+          loadedFollowUps[lastIndex].sources = msg.sources;
+        }
+      } else {
+        mainMessages.push(msg);
+      }
+    });
+    
+    setMessages(mainMessages);
+    setFollowUps(loadedFollowUps);
   }, []);
 
   useEffect(() => {
@@ -522,6 +548,12 @@ export default function VeracityDashboard() {
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
+    // Append previous follow-ups so the new follow-up has the full context
+    for (const fu of followUps) {
+      if (fu.question) history.push({ role: 'user', content: fu.question });
+      if (fu.answer && !fu.loading) history.push({ role: 'assistant', content: fu.answer });
+    }
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -553,6 +585,15 @@ export default function VeracityDashboard() {
               setFollowUps(prev => prev.map(f =>
                 f.id === fuId ? { ...f, answer: out.synthesizedAnswer, sources, loading: false } : f
               ));
+              
+              if (currentSessionId) {
+                // Save the follow-up question and answer to the session
+                await saveMessage(currentSessionId, 'user', text, { isFollowUp: true });
+                await saveMessage(currentSessionId, 'assistant', out.synthesizedAnswer, { 
+                  isFollowUp: true, 
+                  sources 
+                });
+              }
             }
           } catch { /* skip */ }
         }
@@ -650,18 +691,37 @@ export default function VeracityDashboard() {
                 <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>Recent</span>
               </div>
               {sessions.slice(0, 8).map((session) => (
-                <button key={session.id} onClick={() => loadSession(session.id)} title={session.title}
-                  className="w-full text-left text-[12px] px-2 py-1.5 rounded-md truncate transition-colors"
-                  style={{ color: currentSessionId === session.id ? textMain : textMuted }}
-                  onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMain; b.style.background = isDark ? '#1a1a1a' : '#f0f0f0'; }}
-                  onMouseLeave={e => {
-                    const b = e.currentTarget as HTMLButtonElement;
-                    b.style.color = currentSessionId === session.id ? textMain : textMuted;
-                    b.style.background = 'transparent';
-                  }}
-                >
-                  {session.title}
-                </button>
+                <div key={session.id} className="relative group flex items-center mb-0.5">
+                  <button onClick={() => loadSession(session.id)} title={session.title}
+                    className="flex-1 text-left text-[12px] px-2 py-1.5 rounded-md truncate transition-colors"
+                    style={{ color: currentSessionId === session.id ? textMain : textMuted, paddingRight: '28px' }}
+                    onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMain; b.style.background = isDark ? '#1a1a1a' : '#f0f0f0'; }}
+                    onMouseLeave={e => {
+                      const b = e.currentTarget as HTMLButtonElement;
+                      b.style.color = currentSessionId === session.id ? textMain : textMuted;
+                      b.style.background = 'transparent';
+                    }}
+                  >
+                    {session.title}
+                  </button>
+                  <button
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await deleteSession(session.id);
+                      if (currentSessionId === session.id) {
+                        handleNewQuery();
+                      }
+                      await refreshSessions();
+                    }}
+                    className="absolute right-1 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
+                    style={{ color: '#ef4444' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.1)'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                    title="Delete session"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               ))}
             </div>
           ) : null}
@@ -843,9 +903,18 @@ export default function VeracityDashboard() {
               <div>
                 {/* Row header */}
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-[12px] font-mono truncate max-w-[65%]" style={{ color: textMuted }}>
-                    {recentQueries[recentQueries.length - 1] ?? 'analysing…'}
-                  </p>
+                  <div className="flex flex-col gap-2 max-w-[65%]">
+                    <p className="text-[12px] font-mono truncate" style={{ color: textMuted }}>
+                      {recentQueries[recentQueries.length - 1] ?? 'analysing…'}
+                    </p>
+                    {messages.filter(m => m.role === 'user').pop()?.images && (
+                      <div className="flex flex-wrap gap-2">
+                        {messages.filter(m => m.role === 'user').pop()?.images?.map((img, i) => (
+                          <img key={i} src={img.dataUrl} alt={img.name} className="h-10 w-10 object-cover rounded-md" style={{ border: `1px solid ${borderC}` }} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2.5">
                     <div className="flex gap-1">
                       {ALL_DOMAINS.map(d => {

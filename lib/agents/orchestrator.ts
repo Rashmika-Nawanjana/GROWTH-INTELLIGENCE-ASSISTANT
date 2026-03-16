@@ -105,7 +105,7 @@ Domain selection rules:
   } catch {
     // Fallback: activate all domains
     return {
-      product: 'Vector Agents',
+      product: 'the current product',
       domains: ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent'],
       intent: query,
     };
