@@ -1,14 +1,19 @@
+---
+name: channel-strategist
+description: Recommends optimal channel mix and deployment strategy based on live signals, audience behavior, and campaign goals. Use when the user asks which channel to prioritize, how to deploy outreach, or needs a LinkedIn vs Email decision with clear rationale.
+---
+
 # Channel Strategist Skill
 
 **Purpose**: Recommend optimal channel mix and deployment strategy based on live signals, audience behavior, and campaign goals. Help decide LinkedIn vs Email vs Both with clear rationale.
 
 **When to use this skill**:
 - During outreach planning or after variant generation.
-- When user asks “Which channel first?” or “How should we deploy this?”
+- When user asks "Which channel first?" or "How should we deploy this?"
 
 **Core Instructions**:
 - Analyze research findings + audience signals + 2026 channel trends in B2B SaaS (LinkedIn for thought leadership and warm outreach; Email for scalable sequences and direct response).
-- Consider Lilian’s strengths: insight-first, personalized, research-grounded messaging performs best where context and personalization matter.
+- Consider Lilian's strengths: insight-first, personalized, research-grounded messaging performs best where context and personalization matter.
 - Output recommendations with:
   - Primary channel + rationale
   - Secondary / combined approach
@@ -17,7 +22,7 @@
 
 **Output Format**:
 - Structured recommendation (ready for UI picker: LinkedIn / Email / Both)
-- Performance map preview data (e.g., “LinkedIn: higher engagement on strategic angles, Email: better reply volume”)
+- Performance map preview data (e.g., "LinkedIn: higher engagement on strategic angles, Email: better reply volume")
 - Traceable signals used
 
 **Best Practices**:

@@ -1,3 +1,8 @@
+---
+name: ui-renderer
+description: Converts structured agent outputs into interactive ephemeral UIs that render inline in the conversation thread. Use whenever research, content, or feedback agents produce structured JSON ready for display — including variant grids, channel selectors, performance maps, campaign brief cards, and prospect segment choosers.
+---
+
 # Ephemeral / Generative UI Renderer Skill
 
 **Purpose**: Convert structured agent outputs (JSON from schemas) into beautiful, interactive, purpose-built UIs that materialize **inside the conversation thread** — exactly as required by the hackathon (no pasted text, no external links).

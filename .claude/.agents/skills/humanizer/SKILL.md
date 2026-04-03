@@ -1,6 +1,11 @@
+---
+name: humanizer-natural-copy
+description: Refines AI-generated outreach and content to sound authentically human, warm, and strategic while preserving signal-grounded elements. Use when output feels robotic or generic, or when the user asks to humanize, refine, or improve the tone of any copy or variant.
+---
+
 # Humanizer & Natural Copy Skill
 
-**Purpose**: Refine AI-generated outreach and content to sound authentically human, strategic, and high-quality — matching Lilian’s positioning of “human-quality replies” while staying grounded in signals.
+**Purpose**: Refine AI-generated outreach and content to sound authentically human, strategic, and high-quality — matching Lilian's positioning of "human-quality replies" while staying grounded in signals.
 
 **When to use this skill**:
 - After `generate-variants` or any content generation.

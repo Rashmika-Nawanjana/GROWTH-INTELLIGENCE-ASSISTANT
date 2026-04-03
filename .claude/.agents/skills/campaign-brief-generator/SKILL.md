@@ -1,10 +1,15 @@
+---
+name: campaign-brief-generator
+description: Generates structured campaign briefs and one-pagers from research findings and message variants. Use when the user asks for a campaign brief, positioning guide, one-pager, or strategy doc — especially for AI SDR or outbound GTM contexts.
+---
+
 # Campaign Brief Generator Skill
 
 **Purpose**: Turn research findings + variants into structured, actionable campaign briefs and one-pagers that a growth team can execute immediately without extra synthesis.
 
 **When to use this skill**:
 - After research or variant generation.
-- When user asks for “campaign brief”, “one-pager”, “positioning guide”, or “strategy doc”.
+- When user asks for "campaign brief", "one-pager", "positioning guide", or "strategy doc".
 
 **Core Instructions**:
 - Synthesize live signals, positioning gaps, target segments (e.g., VP Sales at Series B SaaS), and A/B variants.
@@ -18,5 +23,5 @@
 
 **Best Practices**:
 - Keep briefs short and visual-ready (bullet points, tables for variants).
-- Emphasize Lilian’s differentiators vs 2026 competitors (11x.ai, Artisan, Salesloft, etc.).
+- Emphasize Lilian's differentiators vs 2026 competitors (11x.ai, Artisan, Salesloft, etc.).
 - Prepare for ephemeral UI rendering as a clean, expandable card in the thread.

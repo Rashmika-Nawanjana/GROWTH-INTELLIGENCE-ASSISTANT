@@ -1,3 +1,8 @@
+---
+name: growth-copywriter
+description: Writes expert-level B2B SaaS copy for cold outreach sequences, LinkedIn posts, hooks, and CTAs grounded in live signals. Use when the user asks for email copy, LinkedIn content, follow-up sequences, or any campaign writing optimized for reply rates and conversions.
+---
+
 # Growth Copywriter Skill (B2B SaaS Outreach)
 
 **Purpose**: Expert-level copywriting for growth campaigns — cold outreach sequences, LinkedIn posts/threads, hooks, and CTAs grounded in signals and optimized for reply rates.
@@ -19,4 +24,4 @@
 - Tone: Confident, helpful, non-salesy — like a strategic SDR who did deep research.
 
 **Example Trigger**:
-“Write LinkedIn post variants about Lilian” → Output multiple angles ready for UI grid.
+"Write LinkedIn post variants about Lilian" → Output multiple angles ready for UI grid.
