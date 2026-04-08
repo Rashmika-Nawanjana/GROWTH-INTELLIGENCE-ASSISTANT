@@ -7,7 +7,7 @@ import {
   LogOut, User, Layers, X, History, GitBranch,
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
-  Activity, Zap, Shield, Sun, Moon,
+  Activity, Zap, Shield, Sun, Moon, Rocket,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput } from '@/lib/agents/types';
@@ -69,7 +69,7 @@ const DEMO_QUERIES = [
   'What should Vector Agents build to capture emerging demand?',
 ];
 
-const ALL_DOMAINS = ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent'] as const;
+const ALL_DOMAINS = ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent', 'execution-engine'] as const;
 type Domain = typeof ALL_DOMAINS[number];
 
 const DOMAIN_META: Record<Domain, {
@@ -109,6 +109,11 @@ const DOMAIN_META: Record<Domain, {
     label: 'Adjacent Market Collision', short: 'Adjacent',
     icon: <Telescope size={14} />,
     color: '#6366f1', bg: 'rgba(99,102,241,0.08)', bgLight: 'rgba(99,102,241,0.06)', border: 'rgba(99,102,241,0.3)',
+  },
+  'execution-engine': {
+    label: 'Execution Engine',          short: 'Execution',
+    icon: <Rocket size={14} />,
+    color: '#0070f3', bg: 'rgba(0,112,243,0.08)', bgLight: 'rgba(0,112,243,0.06)', border: 'rgba(0,112,243,0.3)',
   },
 };
 

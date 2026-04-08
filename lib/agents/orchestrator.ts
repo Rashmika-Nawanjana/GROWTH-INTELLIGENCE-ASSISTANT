@@ -5,6 +5,7 @@ import { winLossAgent } from './win-loss';
 import { pricingAgent } from './pricing';
 import { positioningAgent } from './positioning';
 import { adjacentAgent } from './adjacent';
+import { executionEngineAgent } from './execution/execution-engine';
 import type {
   AgentConfig,
   AgentContext,
@@ -41,6 +42,7 @@ interface ClassificationResult {
   competitorUrl?: string;
   domains: IntelligenceDomain[];
   intent: string;
+  runExecution: boolean;  // true when query is execution-intent (write copy, outreach, variants, brief)
 }
 
 async function classifyQuery(
@@ -69,7 +71,8 @@ Respond with JSON:
   "productUrl": string | null,  // Product website if known (e.g. vectoragents.ai)
   "competitorUrl": string | null,
   "domains": string[],       // Which intelligence domains to activate. Options: market-trends, competitive, win-loss, pricing, positioning, adjacent
-  "intent": string           // One-line description of what the user wants to know
+  "intent": string,          // One-line description of what the user wants to know
+  "runExecution": boolean    // true if the query is execution-intent (write copy, draft outreach, campaign brief, cold email, LinkedIn post, variants, one-pager, positioning guide, outreach sequence)
 }
 
 Domain selection rules:
@@ -80,7 +83,14 @@ Domain selection rules:
 - "disruption", "threat", "outside", "adjacent" → include adjacent
 - "build", "roadmap", "strategy" → include market-trends, competitive, adjacent
 - Vague / broad queries → include all 6 domains
-- Always include at least 3 domains`;
+- Always include at least 3 domains
+
+Execution intent detection (set runExecution: true if ANY of these apply):
+- "write", "draft", "create", "generate" + outreach/email/LinkedIn/copy/post/message/sequence
+- "campaign brief", "one-pager", "positioning guide", "strategy doc"
+- "cold email", "LinkedIn post", "outreach sequence", "message variants"
+- "variants", "A/B", "hypothesis", "test angles"
+- "ship", "launch", "deploy" + campaign/outreach`;
 
   try {
     // Build multimodal parts: text prompt + any attached images
@@ -101,13 +111,15 @@ Domain selection rules:
       competitorUrl: (parsed.competitorUrl as string) ?? undefined,
       domains: (parsed.domains as IntelligenceDomain[]) ?? ['market-trends', 'competitive', 'win-loss'],
       intent: (parsed.intent as string) ?? query,
+      runExecution: (parsed.runExecution as boolean) ?? false,
     };
   } catch {
-    // Fallback: activate all domains
+    // Fallback: activate all domains, no execution
     return {
       product: 'the current product',
       domains: ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent'],
       intent: query,
+      runExecution: false,
     };
   }
 }
@@ -328,7 +340,7 @@ export async function orchestrate(
   // Step 1: Classify query and extract context
   const classification = await classifyQuery(query, history, images, memoryContext);
 
-  const { product, competitor, productUrl, competitorUrl, intent } = classification;
+  const { product, competitor, productUrl, competitorUrl, intent, runExecution } = classification;
 
   // Build prior context string for agents
   const priorContext = history
@@ -382,6 +394,32 @@ export async function orchestrate(
       r.status === 'fulfilled' && r.value !== null
     )
     .map(r => r.value as AgentOutput);
+
+  // ── Stage 2: Execution Engine (only if execution intent detected) ──────────
+  if (runExecution) {
+    const execRun: AgentRun = {
+      agentId: 'execution-engine',
+      name: 'Execution Engine',
+      status: 'running',
+      startedAt: new Date().toISOString(),
+    };
+    agentRuns.push(execRun);
+    onAgentUpdate?.(execRun);
+
+    try {
+      const executionOutput = await executionEngineAgent.run({
+        ...agentContext,
+        researchOutputs: outputs,   // pass stage-1 findings as grounding
+      });
+      execRun.status = 'completed';
+      execRun.completedAt = new Date().toISOString();
+      outputs.push(executionOutput);
+    } catch (err) {
+      execRun.status = 'failed';
+      execRun.error = err instanceof Error ? err.message : String(err);
+    }
+    onAgentUpdate?.(execRun);
+  }
 
   // Step 4: Synthesise + generate mind map in parallel
   const [synthesisResult, mindMapResult] = await Promise.all([

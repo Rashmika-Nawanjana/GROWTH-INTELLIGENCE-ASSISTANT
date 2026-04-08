@@ -48,7 +48,8 @@ export type IntelligenceDomain =
   | 'win-loss'
   | 'pricing'
   | 'positioning'
-  | 'adjacent';
+  | 'adjacent'
+  | 'execution-engine';
 
 // ─── Artifact types (drives which component renders) ─────────────────────────
 export type ArtifactType =
@@ -59,7 +60,8 @@ export type ArtifactType =
   | 'positioning-gap'
   | 'threat-heatmap'
   | 'mind-map'
-  | 'scorecard';
+  | 'scorecard'
+  | 'execution-plan';
 
 // ─── Domain-specific output shapes ───────────────────────────────────────────
 
@@ -230,4 +232,45 @@ export interface AgentContext {
   priorContext?: string;    // serialised prior conversation findings
   images?: ImageAttachment[];  // optional visual context from user
   memoryContext?: string;      // persistent user memory across all sessions
+  researchOutputs?: AgentOutput[];  // stage-1 research findings — populated for Execution Engine only
+}
+
+// ─── Execution Engine output shapes (Member 3) ───────────────────────────────
+
+export interface CampaignVariant {
+  id: string;                                    // e.g. "V1-ROI"
+  angle: string;                                 // e.g. "ROI-focused"
+  hypothesis: string;                            // falsifiable — tied to a research signal
+  successMetric: string;                         // e.g. "reply rate > 4%"
+  variable: string;                              // the single variable being tested
+  channels: {
+    email?: { subject: string; body: string; followUps?: string[] };
+    linkedin?: { hook: string; post: string };
+  };
+  groundedSignals: string[];                     // pointers back to research agent findings
+}
+
+export interface CampaignBrief {
+  objective: string;
+  targetAudience: string;
+  painPoints: string[];
+  keyMessagingAngles: { angle: string; hypothesis: string }[];
+  variantsSummary: string;
+  channelStrategy: string;
+  successMetrics: string[];
+  nextSteps: string[];
+}
+
+export interface DeploymentStep {
+  day: number;
+  action: string;                                // e.g. "Send Variant A to Segment X"
+  channel: 'email' | 'linkedin' | 'ads';
+  audience: string;
+}
+
+export interface ExecutionPlanOutput extends AgentOutput {
+  artifactType: 'execution-plan';
+  variants: CampaignVariant[];
+  brief: CampaignBrief;
+  deployment: DeploymentStep[];
 }

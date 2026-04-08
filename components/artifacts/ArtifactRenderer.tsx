@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { AgentOutput, MarketTrendsOutput, CompetitiveOutput, WinLossOutput, PricingOutput, PositioningOutput, AdjacentOutput, MindMapOutput } from '@/lib/agents/types';
+import type { AgentOutput, MarketTrendsOutput, CompetitiveOutput, WinLossOutput, PricingOutput, PositioningOutput, AdjacentOutput, MindMapOutput, ExecutionPlanOutput } from '@/lib/agents/types';
 import { TrendChart } from './TrendChart';
 import { CompetitiveMatrix } from './CompetitiveMatrix';
 import { WinLossScorecard } from './WinLossScorecard';
@@ -9,6 +9,7 @@ import { PricingTable } from './PricingTable';
 import { PositioningGap } from './PositioningGap';
 import { ThreatHeatmap } from './ThreatHeatmap';
 import { MindMap } from './MindMap';
+import { ExecutionPlan } from './ExecutionPlan';
 
 interface Props {
   output: AgentOutput;
@@ -52,6 +53,11 @@ export function ArtifactRenderer({ output, product }: Props) {
       const o = output as MindMapOutput;
       if (!o.branches?.length) return null;
       return <MindMap output={o} />;
+    }
+    case 'execution-plan': {
+      const o = output as ExecutionPlanOutput;
+      if (!o.variants?.length && !o.brief?.objective) return null;
+      return <ExecutionPlan output={o} product={product} />;
     }
     default:
       return null;
