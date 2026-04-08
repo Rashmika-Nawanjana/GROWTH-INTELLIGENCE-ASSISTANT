@@ -14,7 +14,10 @@ const WTP_CONFIG = {
 };
 
 export function PricingTable({ output }: Props) {
-  const { competitorPricing, willingnessToPay, pricingSignals, recommendation } = output;
+  const competitorPricing = output.competitorPricing ?? [];
+  const willingnessToPay = output.willingnessToPay;
+  const pricingSignals = output.pricingSignals ?? [];
+  const recommendation = output.recommendation;
   const wtp = WTP_CONFIG[willingnessToPay] ?? WTP_CONFIG['mid-market'];
 
   return (

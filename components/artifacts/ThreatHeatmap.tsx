@@ -45,7 +45,10 @@ function ThreatCard({ threat }: { threat: AdjacentThreat }) {
 }
 
 export function ThreatHeatmap({ output }: Props) {
-  const { threats, overallRisk, timeToImpact, defensiveActions } = output;
+  const threats = output.threats ?? [];
+  const overallRisk = output.overallRisk ?? 'low';
+  const timeToImpact = output.timeToImpact;
+  const defensiveActions = output.defensiveActions ?? [];
 
   const grouped = {
     high:   threats.filter(t => t.riskLevel === 'high'),

@@ -16,7 +16,11 @@ import { useTheme } from '@/lib/theme';
 import {
   createSession, listSessions, saveMessage, loadMessages, deleteSession, type ChatSession, type StoredMessage,
 } from '@/lib/conversations';
-// memory module replaced by session-scoped pgvector recall
+import {
+  getUserMemory, extractAndUpdateMemory, buildMemoryContext, type UserMemory,
+} from '@/lib/memory';
+
+// Per-session pgvector recall (semantic search over earlier turns in this chat)
 async function recallContextForSession(sessionId: string, query: string): Promise<string> {
   try {
     const res = await fetch('/api/recall', {
@@ -331,6 +335,7 @@ export default function VeracityDashboard() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
+  const [userMemory, setUserMemory] = useState<UserMemory | null>(null);
 
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const followUpEndRef = useRef<HTMLDivElement>(null);
@@ -383,10 +388,20 @@ export default function VeracityDashboard() {
     setFollowUps(loadedFollowUps);
   }, []);
 
+  const refreshUserMemory = useCallback(async () => {
+    try {
+      const m = await getUserMemory();
+      setUserMemory(m);
+    } catch {
+      // Non-fatal — chat still works without persistent memory
+    }
+  }, []);
+
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null));
     refreshSessions();
-  }, [refreshSessions]);
+    refreshUserMemory();
+  }, [refreshSessions, refreshUserMemory]);
 
   useEffect(() => {
     if (followUps.length > 0) followUpEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -435,12 +450,14 @@ export default function VeracityDashboard() {
     const recalledContext = currentSessionId
       ? await recallContextForSession(currentSessionId, effectiveText)
       : '';
+    const userMemoryContext = userMemory ? buildMemoryContext(userMemory) : '';
+    const memoryContext = [userMemoryContext, recalledContext].filter(Boolean).join('\n\n');
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: effectiveText, history, images: imagePayloads, recalledContext }),
+        body: JSON.stringify({ query: effectiveText, history, images: imagePayloads, memoryContext }),
       });
       if (!res.ok || !res.body) throw new Error(`API error ${res.status}`);
 
@@ -552,6 +569,15 @@ export default function VeracityDashboard() {
         });
 
         indexMessageInBackground(sessionId, 'assistant', finalOutput.synthesizedAnswer);
+
+        // Fire-and-forget durable memory extraction (role/company/products/competitors).
+        // Never blocks the UI; refreshes local memory once it returns so the next
+        // turn already carries the new facts in its memoryContext.
+        if (userMemory) {
+          extractAndUpdateMemory(sessionId, effectiveText, finalOutput.synthesizedAnswer, userMemory)
+            .then(() => refreshUserMemory())
+            .catch(() => {});
+        }
       }
     }
   };
@@ -576,11 +602,13 @@ export default function VeracityDashboard() {
     const recalledContext = currentSessionId
       ? await recallContextForSession(currentSessionId, text)
       : '';
+    const userMemoryContext = userMemory ? buildMemoryContext(userMemory) : '';
+    const memoryContext = [userMemoryContext, recalledContext].filter(Boolean).join('\n\n');
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, history, recalledContext }),
+        body: JSON.stringify({ query: text, history, memoryContext }),
       });
       if (!res.ok || !res.body) throw new Error();
 
@@ -617,6 +645,12 @@ export default function VeracityDashboard() {
                 });
                 indexMessageInBackground(currentSessionId, 'user', text);
                 indexMessageInBackground(currentSessionId, 'assistant', out.synthesizedAnswer);
+
+                if (userMemory) {
+                  extractAndUpdateMemory(currentSessionId, text, out.synthesizedAnswer, userMemory)
+                    .then(() => refreshUserMemory())
+                    .catch(() => {});
+                }
               }
             }
           } catch { /* skip */ }

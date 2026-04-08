@@ -31,7 +31,11 @@ function StrengthDot({ level }: { level: CompetitorFeature['yourProduct'] }) {
 }
 
 export function CompetitiveMatrix({ output, product }: Props) {
-  const { matrix, competitor, competitorSummary, hiringSignals, recentMoves } = output;
+  const matrix = output.matrix ?? [];
+  const competitor = output.competitor;
+  const competitorSummary = output.competitorSummary;
+  const hiringSignals = output.hiringSignals ?? [];
+  const recentMoves = output.recentMoves ?? [];
 
   return (
     <div className="flex flex-col gap-4">

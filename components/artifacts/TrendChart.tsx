@@ -36,7 +36,10 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 
 export function TrendChart({ output }: TrendChartProps) {
-  const { trends, categoryOutlook, keySignals, timeHorizon } = output;
+  const trends = output.trends ?? [];
+  const keySignals = output.keySignals ?? [];
+  const categoryOutlook = output.categoryOutlook;
+  const timeHorizon = output.timeHorizon;
 
   const chartData = trends.map(t => ({
     ...t,

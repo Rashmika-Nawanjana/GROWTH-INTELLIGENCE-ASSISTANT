@@ -43,8 +43,11 @@ function ReasonRow({ reason, type }: { reason: WinReason; type: 'win' | 'loss' }
 }
 
 export function WinLossScorecard({ output, competitor, product }: Props) {
-  const { competitorWins, competitorLosses, buyerSentiment, topSwitchTriggers } = output;
-  const sentCfg = SENTIMENT_CONFIG[buyerSentiment];
+  const competitorWins = output.competitorWins ?? [];
+  const competitorLosses = output.competitorLosses ?? [];
+  const buyerSentiment = output.buyerSentiment;
+  const topSwitchTriggers = output.topSwitchTriggers ?? [];
+  const sentCfg = SENTIMENT_CONFIG[buyerSentiment] ?? SENTIMENT_CONFIG.mixed;
   const competitorLabel = competitor && competitor !== 'main competitor' ? competitor : 'Competitor';
   const productLabel = product || 'Us';
 

@@ -266,7 +266,9 @@ function DetailPanel({
 
 // ── Main component ──
 export function MindMap({ output }: Props) {
-  const { centralTopic, branches: rawBranches, summary } = output;
+  const centralTopic = output.centralTopic ?? '';
+  const rawBranches = output.branches ?? [];
+  const summary = output.summary;
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -323,7 +325,20 @@ export function MindMap({ output }: Props) {
 
   const onPointerUp = useCallback(() => setIsDragging(false), []);
 
-  if (branches.length === 0) return null;
+  if (branches.length === 0) {
+    // Defensive fallback: a sparse run can leave us with zero branches even
+    // though the artifact mounted. Show a small inline notice instead of a
+    // blank panel so the user knows the mind-map step ran but yielded nothing.
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Mind Map</div>
+        <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-4 text-xs text-muted-foreground leading-snug">
+          Synthesis returned no usable branches for this query.
+          {summary ? <span className="block mt-1 text-foreground/80">{summary}</span> : null}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">

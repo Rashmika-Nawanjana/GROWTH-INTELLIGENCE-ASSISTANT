@@ -45,6 +45,31 @@ interface ClassificationResult {
   runExecution: boolean;  // true when query is execution-intent (write copy, outreach, variants, brief)
 }
 
+// Deterministic execution-intent detector. Runs alongside the LLM classifier
+// so we never miss obvious "write copy / draft outreach / generate variants"
+// queries. If either signal fires, the Execution Engine kicks in.
+//
+// The patterns are intentionally biased toward generation verbs combined
+// with marketing/outreach artifacts — they should not fire on pure research
+// questions like "compare X vs Y" or "what is the market for X".
+const EXECUTION_INTENT_PATTERNS: RegExp[] = [
+  // verb + artifact ("write a cold email", "draft an outreach sequence")
+  /\b(write|draft|create|generate|produce|craft|compose|build|make|give\s+me|send\s+me|show\s+me)\b[^.?!]*\b(cold\s*email|email|linkedin|outreach|sequence|message|messages|copy|post|posts|caption|captions|brief|one[-\s]?pager|pitch|landing\s*page|ad|ads|campaign|cta|hook|headline|tagline|script|dm|outbound|nurture)\b/i,
+  // explicit framings
+  /\b(campaign\s*brief|positioning\s*guide|strategy\s*doc|messaging\s*guide|launch\s*plan|go[-\s]?to[-\s]?market\s*plan|gtm\s*plan)\b/i,
+  // A/B testing language
+  /\b(a\/b|a\s*b\s*test|ab\s*test|variants?|test\s*angles?|message\s*variants?|message\s*test|hypotheses?|falsifiable)\b/i,
+  // ship / launch / deploy verbs paired with marketing artifact
+  /\b(ship|launch|deploy|roll\s*out)\b[^.?!]*\b(campaign|outreach|email|sequence|copy|message|post|ad)\b/i,
+  // bare imperatives that almost always mean "generate something"
+  /^\s*(write|draft|generate|create|compose)\s+/i,
+];
+
+function detectExecutionIntent(query: string): boolean {
+  if (!query?.trim()) return false;
+  return EXECUTION_INTENT_PATTERNS.some(re => re.test(query));
+}
+
 async function classifyQuery(
   query: string,
   history: ConversationMessage[],
@@ -86,11 +111,17 @@ Domain selection rules:
 - Always include at least 3 domains
 
 Execution intent detection (set runExecution: true if ANY of these apply):
-- "write", "draft", "create", "generate" + outreach/email/LinkedIn/copy/post/message/sequence
-- "campaign brief", "one-pager", "positioning guide", "strategy doc"
-- "cold email", "LinkedIn post", "outreach sequence", "message variants"
-- "variants", "A/B", "hypothesis", "test angles"
-- "ship", "launch", "deploy" + campaign/outreach`;
+- Generation verbs ("write", "draft", "create", "generate", "produce", "craft", "compose", "build", "make", "give me", "show me", "send me") combined with any marketing or outreach artifact (cold email, email, LinkedIn post, outreach sequence, copy, message, ad, campaign, brief, one-pager, landing page, pitch, CTA, hook, headline, tagline, DM, nurture, outbound)
+- Standalone phrases: "campaign brief", "one-pager", "positioning guide", "strategy doc", "messaging guide", "launch plan", "go-to-market plan", "GTM plan"
+- A/B testing language: "variants", "A/B", "AB test", "hypothesis", "test angles", "message variants", "falsifiable"
+- Deployment verbs ("ship", "launch", "deploy", "roll out") combined with campaign/outreach/sequence/copy/message/post/ad
+- Bare imperatives that start with a generation verb ("Write...", "Draft...", "Generate...", "Create...", "Compose...")
+
+Set runExecution: false for pure research questions ("compare X vs Y", "what is the market for X", "is X growing", "who are the competitors of X").`;
+
+  // Deterministic regex check — runs in parallel with the LLM classifier so
+  // we never miss obvious execution intents even if Gemini misclassifies.
+  const regexExecution = detectExecutionIntent(query);
 
   try {
     // Build multimodal parts: text prompt + any attached images
@@ -111,15 +142,17 @@ Execution intent detection (set runExecution: true if ANY of these apply):
       competitorUrl: (parsed.competitorUrl as string) ?? undefined,
       domains: (parsed.domains as IntelligenceDomain[]) ?? ['market-trends', 'competitive', 'win-loss'],
       intent: (parsed.intent as string) ?? query,
-      runExecution: (parsed.runExecution as boolean) ?? false,
+      runExecution: ((parsed.runExecution as boolean) ?? false) || regexExecution,
     };
   } catch {
-    // Fallback: activate all domains, no execution
+    // Fallback: activate all domains. Honour the regex execution check even
+    // when Gemini errors out — a "draft a cold email" query must still trigger
+    // the Execution Engine.
     return {
       product: 'the current product',
       domains: ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent'],
       intent: query,
-      runExecution: false,
+      runExecution: regexExecution,
     };
   }
 }

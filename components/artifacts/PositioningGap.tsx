@@ -10,7 +10,10 @@ interface Props {
 }
 
 export function PositioningGap({ output, product, competitor }: Props) {
-  const { gaps, yourPositioning, competitorPositioning, adThemes } = output;
+  const gaps = output.gaps ?? [];
+  const yourPositioning = output.yourPositioning;
+  const competitorPositioning = output.competitorPositioning;
+  const adThemes = output.adThemes ?? [];
   const competitorLabel = competitor && competitor !== 'main competitor' ? competitor : 'Competitor';
 
   return (
