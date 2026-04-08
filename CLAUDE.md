@@ -231,14 +231,32 @@ This is **not a popup chatbot**. The system must maintain deep conversational me
 
 ## Multi-Agent Architecture Requirements
 
-### Minimum Agent Count: 6
-The six specialist agents must always be available:
+### Two-Stage Architecture (Member 3)
+
+The orchestrator now runs in **two sequential stages**:
+
+**Stage 1 — Research (parallel, always runs):**
+Six specialist agents fan out simultaneously via `Promise.allSettled`:
 1. `market-trends` — Market & Trend Sensing
 2. `competitive` — Competitive Landscape & Feature Bets
 3. `win-loss` — Win / Loss Intelligence
 4. `pricing` — Pricing & Packaging Intelligence
 5. `positioning` — Positioning & Messaging Gaps
 6. `adjacent` — Adjacent Market Collision
+
+**Stage 2 — Execution Engine (triggered by execution intent, runs after Stage 1):**
+When the query contains execution intent (write copy, draft outreach, campaign brief, cold email, LinkedIn post, message variants, A/B test angles), the classifier sets `runExecution: true` and the orchestrator dispatches the Execution Engine after Stage 1 completes. This proves "Research → Action" sequencing.
+
+The Execution Engine (`lib/agents/execution/execution-engine.ts`) fans out **3 sub-agents in parallel**:
+- `content-agent` — Campaign brief + copy angles (grounded in Stage 1 findings)
+- `ab-variant-agent` — 3 A/B variants, each with a falsifiable hypothesis tied to a Stage 1 signal
+- `outreach-formatter` — Humanised email/LinkedIn sequences + deployment timeline
+
+All 3 sub-agents receive `researchOutputs` (Stage 1 findings) via `AgentContext`, satisfying the live-signal rule.
+
+**Demo talking point:** A full execution query runs 9 agents total (6 research + 3 execution sub-agents), all grounded in live-fetched signals.
+
+### Minimum Agent Count: 6 (research) + 3 (execution sub-agents) = 9 total
 
 ### Parallelism (7.2 from brief)
 - The orchestrator **must** dispatch multiple agents simultaneously using `Promise.all` or equivalent.
