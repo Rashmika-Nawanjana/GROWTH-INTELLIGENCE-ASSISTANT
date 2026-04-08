@@ -23,22 +23,22 @@ const DARK: Omit<ThemeContextValue, 'theme' | 'isDark' | 'toggle'> = {
   bg:          '#0a0a0a',
   surface:     '#111111',
   surface2:    '#161616',
-  border:      '#262626',
-  borderStrong:'#404040',
-  text:        '#f2f2f2',
-  textMuted:   '#a0a0a0',
-  textSubtle:  '#555555',
+  border:      '#2e2e2e',
+  borderStrong:'#484848',
+  text:        '#ededed',
+  textMuted:   '#c2c2c2',   // much higher contrast than #a0a0a0
+  textSubtle:  '#6b6b6b',
 };
 
 const LIGHT: Omit<ThemeContextValue, 'theme' | 'isDark' | 'toggle'> = {
-  bg:          '#f9f9f9',
+  bg:          '#fafafa',
   surface:     '#ffffff',
-  surface2:    '#f4f4f4',
-  border:      '#e5e5e5',
-  borderStrong:'#cccccc',
+  surface2:    '#f5f5f5',
+  border:      '#e0e0e0',
+  borderStrong:'#c0c0c0',
   text:        '#111111',
-  textMuted:   '#555555',
-  textSubtle:  '#999999',
+  textMuted:   '#383838',   // much higher contrast than #555555
+  textSubtle:  '#717171',
 };
 
 const ThemeContext = createContext<ThemeContextValue>({

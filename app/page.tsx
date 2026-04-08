@@ -16,9 +16,28 @@ import { useTheme } from '@/lib/theme';
 import {
   createSession, listSessions, saveMessage, loadMessages, deleteSession, type ChatSession, type StoredMessage,
 } from '@/lib/conversations';
-import {
-  getUserMemory, extractAndUpdateMemory, buildMemoryContext,
-} from '@/lib/memory';
+// memory module replaced by session-scoped pgvector recall
+async function recallContextForSession(sessionId: string, query: string): Promise<string> {
+  try {
+    const res = await fetch('/api/recall', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, query }),
+    });
+    if (!res.ok) return '';
+    const data = await res.json();
+    return (data?.context as string) ?? '';
+  } catch { return ''; }
+}
+
+function indexMessageInBackground(sessionId: string, role: 'user' | 'assistant', content: string) {
+  if (!content?.trim()) return;
+  fetch('/api/embed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ sessionId, role, content }),
+  }).catch(() => {});
+}
 
 /* ─── Types ─────────────────────────────────────────────── */
 type SourceLink   = { title: string; url: string };
@@ -267,7 +286,7 @@ function AgentCard({
           </div>
         )}
         {status === 'completed' && snippet && (
-          <p className="text-[13px] leading-snug line-clamp-3" style={{ color: 'var(--foreground-muted)' }}>{snippet}</p>
+          <p className="agent-snippet line-clamp-3">{snippet}</p>
         )}
         {status === 'failed' && (
           <p className="text-xs" style={{ color: '#ef4444' }}>Agent failed — partial data only.</p>
@@ -307,7 +326,6 @@ export default function VeracityDashboard() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
-  const [memoryContext, setMemoryContext] = useState('');
 
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const followUpEndRef = useRef<HTMLDivElement>(null);
@@ -363,7 +381,6 @@ export default function VeracityDashboard() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserEmail(data.user?.email ?? null));
     refreshSessions();
-    getUserMemory().then(mem => setMemoryContext(buildMemoryContext(mem)));
   }, [refreshSessions]);
 
   useEffect(() => {
@@ -410,11 +427,15 @@ export default function VeracityDashboard() {
 
     let finalOutput: OrchestratorOutput | null = null;
 
+    const recalledContext = currentSessionId
+      ? await recallContextForSession(currentSessionId, effectiveText)
+      : '';
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: effectiveText, history, images: imagePayloads, memoryContext }),
+        body: JSON.stringify({ query: effectiveText, history, images: imagePayloads, recalledContext }),
       });
       if (!res.ok || !res.body) throw new Error(`API error ${res.status}`);
 
@@ -501,6 +522,7 @@ export default function VeracityDashboard() {
       await saveMessage(sessionId, 'user', effectiveText, {
         images: images.length > 0 ? images : undefined,
       });
+      indexMessageInBackground(sessionId, 'user', effectiveText);
 
       if (finalOutput) {
         const sources = finalOutput.outputs
@@ -524,15 +546,7 @@ export default function VeracityDashboard() {
           agentRuns: finalOutput.agentRuns,
         });
 
-        extractAndUpdateMemory(
-          sessionId,
-          effectiveText,
-          finalOutput.synthesizedAnswer,
-          await getUserMemory(),
-        ).then(async () => {
-          const updated = await getUserMemory();
-          setMemoryContext(buildMemoryContext(updated));
-        });
+        indexMessageInBackground(sessionId, 'assistant', finalOutput.synthesizedAnswer);
       }
     }
   };
@@ -554,10 +568,14 @@ export default function VeracityDashboard() {
       if (fu.answer && !fu.loading) history.push({ role: 'assistant', content: fu.answer });
     }
 
+    const recalledContext = currentSessionId
+      ? await recallContextForSession(currentSessionId, text)
+      : '';
+
     try {
       const res = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, history, memoryContext }),
+        body: JSON.stringify({ query: text, history, recalledContext }),
       });
       if (!res.ok || !res.body) throw new Error();
 
@@ -587,12 +605,13 @@ export default function VeracityDashboard() {
               ));
               
               if (currentSessionId) {
-                // Save the follow-up question and answer to the session
                 await saveMessage(currentSessionId, 'user', text, { isFollowUp: true });
-                await saveMessage(currentSessionId, 'assistant', out.synthesizedAnswer, { 
-                  isFollowUp: true, 
-                  sources 
+                await saveMessage(currentSessionId, 'assistant', out.synthesizedAnswer, {
+                  isFollowUp: true,
+                  sources
                 });
+                indexMessageInBackground(currentSessionId, 'user', text);
+                indexMessageInBackground(currentSessionId, 'assistant', out.synthesizedAnswer);
               }
             }
           } catch { /* skip */ }
@@ -795,7 +814,7 @@ export default function VeracityDashboard() {
                 onChange={e => setInputValue(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSend(inputValue)}
                 placeholder="Ask a growth intelligence question…"
-                className="w-full h-10 pl-9 pr-[88px] text-[13px] bg-transparent outline-none"
+                className="w-full h-10 pl-9 pr-[88px] text-[14px] bg-transparent outline-none"
                 style={{ color: textMain }}
                 disabled={isLoading}
               />
@@ -874,10 +893,10 @@ export default function VeracityDashboard() {
             {messages.length === 0 && !isLoading && (
               <div className="flex flex-col items-center justify-center min-h-[60vh] text-center gap-6">
                 <div>
-                  <h2 className="text-2xl font-semibold tracking-tight mb-2" style={{ color: textMain }}>
+                  <h2 className="empty-heading mb-2">
                     Growth Intelligence
                   </h2>
-                  <p className="text-[13px] font-mono" style={{ color: textMuted }}>
+                  <p className="text-[13px]" style={{ color: textMuted }}>
                     live signals · 6 specialist agents · confidence-scored
                   </p>
                 </div>
@@ -890,7 +909,7 @@ export default function VeracityDashboard() {
                       onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.borderColor = borderC; b.style.color = textMuted; }}
                     >
                       <Search size={13} style={{ color: textSubtle, flexShrink: 0 }} />
-                      <span className="flex-1">{q}</span>
+                      <span className="flex-1 demo-query-text">{q}</span>
                       <ChevronRight size={12} style={{ color: textSubtle, flexShrink: 0 }} />
                     </button>
                   ))}
@@ -904,7 +923,7 @@ export default function VeracityDashboard() {
                 {/* Row header */}
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex flex-col gap-2 max-w-[65%]">
-                    <p className="text-[12px] font-mono truncate" style={{ color: textMuted }}>
+                    <p className="text-[13.5px] font-medium truncate" style={{ color: textMain }}>
                       {recentQueries[recentQueries.length - 1] ?? 'analysing…'}
                     </p>
                     {messages.filter(m => m.role === 'user').pop()?.images && (
@@ -986,7 +1005,7 @@ export default function VeracityDashboard() {
                       <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>Key Facts</p>
                       <ul className="flex flex-col gap-2.5">
                         {expandedOutput.facts.filter(f => !f.startsWith('[')).map((f, i) => (
-                          <li key={i} className="flex items-start gap-2.5 text-[13px]" style={{ color: textMuted }}>
+                          <li key={i} className="flex items-start gap-2.5 fact-item">
                             <span className="font-mono mt-0.5 shrink-0" style={{ color: '#10b981' }}>✓</span>{f}
                           </li>
                         ))}
@@ -999,7 +1018,7 @@ export default function VeracityDashboard() {
                       <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>Analysis</p>
                       <ul className="flex flex-col gap-2.5">
                         {expandedOutput.interpretation.map((interp, i) => (
-                          <li key={i} className="flex items-start gap-2.5 text-[13px]" style={{ color: textMuted }}>
+                          <li key={i} className="flex items-start gap-2.5 fact-item">
                             <span className="font-mono mt-0.5 shrink-0" style={{ color: textSubtle }}>›</span>{interp}
                           </li>
                         ))}
@@ -1029,7 +1048,7 @@ export default function VeracityDashboard() {
                 </div>
 
                 <div className="p-5 flex flex-col gap-6">
-                  <p className="text-[14px] leading-[1.7]" style={{ color: textMuted }}>{currentResult.content}</p>
+                  <p className="prose-answer">{currentResult.content}</p>
 
                   {/* Recommendations */}
                   {currentResult.recommendations && currentResult.recommendations.length > 0 && (
@@ -1049,8 +1068,8 @@ export default function VeracityDashboard() {
                               }}>{rec.priority ?? 'strategic'}</span>
                               <ConfidenceBadge level={rec.confidence ?? (rec.score >= 80 ? 'high' : rec.score >= 55 ? 'medium' : 'low')} />
                             </div>
-                            <h4 className="text-[13px] font-semibold leading-snug" style={{ color: textMain }}>{rec.title}</h4>
-                            <p className="text-[12px] leading-relaxed" style={{ color: textMuted }}>{rec.rationale}</p>
+                            <h4 className="rec-title">{rec.title}</h4>
+                            <p className="rec-body">{rec.rationale}</p>
                             {rec.evidence?.length > 0 && (
                               <ul className="flex flex-col gap-1 mt-1">
                                 {rec.evidence.map((e: string, ei: number) => (
@@ -1128,7 +1147,7 @@ export default function VeracityDashboard() {
                 style={{ border: `1px solid ${borderC}`, borderLeft: '2px solid #0070f3', background: cardBg }}>
                 <div className="flex items-center gap-2.5 px-4 py-3" style={{ borderBottom: `1px solid ${borderC}` }}>
                   <MessageSquarePlus size={13} style={{ color: '#0070f3' }} />
-                  <p className="text-[12px] font-mono" style={{ color: textMuted }}>{fu.question}</p>
+                  <p className="text-[13px] font-mono" style={{ color: textMain }}>{fu.question}</p>
                 </div>
                 <div className="p-4">
                   {fu.loading ? (
@@ -1139,7 +1158,7 @@ export default function VeracityDashboard() {
                     </div>
                   ) : (
                     <>
-                      <p className="text-[13px] leading-[1.7] whitespace-pre-line" style={{ color: textMuted }}>{fu.answer}</p>
+                      <p className="followup-answer whitespace-pre-line">{fu.answer}</p>
                       {fu.sources && fu.sources.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-3 pt-3" style={{ borderTop: `1px solid ${borderC}` }}>
                           {fu.sources.map(s => (
