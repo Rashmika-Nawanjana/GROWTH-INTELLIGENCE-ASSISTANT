@@ -42,7 +42,7 @@ export async function runOutreachFormatter(
   // ── Parallel tool fetch ───────────────────────────────────────────────────
   const [bestPracticesResult, landingResult] = await Promise.allSettled([
     searchWeb('B2B SaaS cold email best practices subject lines 2025 reply rate'),
-    ctx.productUrl ? scrapePage(ctx.productUrl) : Promise.reject('no url'),
+    ctx.productUrl ? scrapePage(ctx.productUrl) : Promise.resolve(null),
   ]);
 
   const sources: AgentSource[] = [];
@@ -55,7 +55,7 @@ export async function runOutreachFormatter(
     });
   }
 
-  if (landingResult.status === 'fulfilled') {
+  if (landingResult.status === 'fulfilled' && landingResult.value) {
     const page = landingResult.value.data;
     sources.push({ url: page.url, title: `${product} Landing Page`, timestamp: landingResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[PRODUCT VOICE] ${page.excerpt}`);

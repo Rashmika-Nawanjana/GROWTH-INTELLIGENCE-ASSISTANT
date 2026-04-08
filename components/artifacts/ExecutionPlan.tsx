@@ -8,12 +8,13 @@
  *
  * Design rules:
  *  - Renders as a card inside the conversation (not-a-chatbot rule)
- *  - Uses inline styles consistent with Rashmika's dark/light theme system
+ *  - Reads theme tokens from ThemeContext (same as page.tsx and other components)
  *  - Each variant clearly shows the falsifiable hypothesis
  */
 
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { ChevronRight, Mail, Linkedin, Target, BookOpen, Calendar, CheckCircle2, ArrowRight } from 'lucide-react';
+import { useTheme } from '@/lib/theme';
 import type { ExecutionPlanOutput, CampaignVariant, DeploymentStep } from '../../lib/agents/types';
 
 interface Props {
@@ -35,13 +36,9 @@ const PRIORITY_COLORS: Record<string, string> = {
   ads:      '#f59e0b',
 };
 
-function VariantCard({ variant, idx, isDark }: { variant: CampaignVariant; idx: number; isDark: boolean }) {
+function VariantCard({ variant, idx }: { variant: CampaignVariant; idx: number }) {
   const [expanded, setExpanded] = useState(false);
-  const borderC  = isDark ? '#262626' : '#e5e5e5';
-  const cardBg   = isDark ? '#161616' : '#f9f9f9';
-  const textMain = isDark ? '#f2f2f2' : '#111111';
-  const textMuted = isDark ? '#a0a0a0' : '#555555';
-  const textSubtle = isDark ? '#555555' : '#999999';
+  const { isDark, border: borderC, surface2: cardBg, text: textMain, textMuted, textSubtle } = useTheme();
 
   const ANGLE_COLORS = ['#3b82f6', '#a855f7', '#10b981', '#f59e0b', '#ef4444', '#6366f1'];
   const accentColor = ANGLE_COLORS[idx % ANGLE_COLORS.length];
@@ -92,7 +89,7 @@ function VariantCard({ variant, idx, isDark }: { variant: CampaignVariant; idx: 
                 <Mail size={12} style={{ color: '#3b82f6' }} />
                 <span className="text-[10px] font-mono font-semibold uppercase tracking-wider" style={{ color: '#3b82f6' }}>Email Sequence</span>
               </div>
-              <div className="rounded-md p-3 flex flex-col gap-2" style={{ background: isDark ? '#0d0d0d' : '#fff', border: `1px solid ${borderC}` }}>
+              <div className="rounded-md p-3 flex flex-col gap-2" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
                 <div>
                   <p className="text-[9px] font-mono uppercase tracking-wider mb-0.5" style={{ color: textSubtle }}>Subject</p>
                   <p className="text-[12px] font-medium" style={{ color: textMain }}>{variant.channels.email.subject}</p>
@@ -125,7 +122,7 @@ function VariantCard({ variant, idx, isDark }: { variant: CampaignVariant; idx: 
                 <Linkedin size={12} style={{ color: '#0077b5' }} />
                 <span className="text-[10px] font-mono font-semibold uppercase tracking-wider" style={{ color: '#0077b5' }}>LinkedIn</span>
               </div>
-              <div className="rounded-md p-3 flex flex-col gap-2" style={{ background: isDark ? '#0d0d0d' : '#fff', border: `1px solid ${borderC}` }}>
+              <div className="rounded-md p-3 flex flex-col gap-2" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
                 <div>
                   <p className="text-[9px] font-mono uppercase tracking-wider mb-0.5" style={{ color: textSubtle }}>Hook</p>
                   <p className="text-[12px] font-semibold" style={{ color: textMain }}>{variant.channels.linkedin.hook}</p>
@@ -159,20 +156,7 @@ function VariantCard({ variant, idx, isDark }: { variant: CampaignVariant; idx: 
 
 export function ExecutionPlan({ output, product }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('variants');
-  const [isDark, setIsDark] = useState(true);
-
-  // Try to detect parent theme by checking CSS variable (fallback to dark)
-  React.useEffect(() => {
-    const bg = getComputedStyle(document.documentElement).getPropertyValue('--background') ?? '';
-    setIsDark(!bg.includes('255'));
-  }, []);
-
-  const borderC   = isDark ? '#262626' : '#e5e5e5';
-  const cardBg    = isDark ? '#111111' : '#ffffff';
-  const cardBg2   = isDark ? '#161616' : '#f9f9f9';
-  const textMain  = isDark ? '#f2f2f2' : '#111111';
-  const textMuted = isDark ? '#a0a0a0' : '#555555';
-  const textSubtle = isDark ? '#555555' : '#999999';
+  const { border: borderC, surface: cardBg, surface2: cardBg2, text: textMain, textMuted, textSubtle } = useTheme();
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'variants',   label: `Variants (${output.variants?.length ?? 0})`, icon: <Target size={12} /> },
@@ -227,7 +211,7 @@ export function ExecutionPlan({ output, product }: Props) {
           <div className="flex flex-col gap-3">
             {output.variants && output.variants.length > 0 ? (
               output.variants.map((v, i) => (
-                <VariantCard key={v.id} variant={v} idx={i} isDark={isDark} />
+                <VariantCard key={v.id} variant={v} idx={i} />
               ))
             ) : (
               <p className="text-[13px]" style={{ color: textMuted }}>No variants generated.</p>

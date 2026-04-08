@@ -38,7 +38,7 @@ export async function runContentAgent(ctx: AgentContext): Promise<ContentAgentOu
 
   // ── Parallel tool fetch ───────────────────────────────────────────────────
   const [pageResult, redditResult, newsResult] = await Promise.allSettled([
-    productUrl ? scrapePage(productUrl) : Promise.reject('no url'),
+    productUrl ? scrapePage(productUrl) : Promise.resolve(null),
     searchReddit(`${product} pain points complaints buyers`),
     searchNews(`${product} ${competitor ?? ''} GTM messaging 2025 2026`),
   ]);
@@ -54,7 +54,7 @@ export async function runContentAgent(ctx: AgentContext): Promise<ContentAgentOu
     rawContent.push(`[RESEARCH GROUNDING]\n${researchSummary}`);
   }
 
-  if (pageResult.status === 'fulfilled') {
+  if (pageResult.status === 'fulfilled' && pageResult.value) {
     const page = pageResult.value.data;
     sources.push({ url: page.url, title: `${product} Website`, timestamp: pageResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[PRODUCT PAGE] ${page.excerpt}`);
