@@ -179,6 +179,14 @@ export interface MindMapOutput extends AgentOutput {
 }
 
 // ─── Orchestrator output ──────────────────────────────────────────────────────
+export interface RunMetrics {
+  totalLatencyMs: number;          // wall-clock time from start to final response
+  agentLatencies: Record<string, number>;  // per-agent latency in ms
+  estimatedCostUsd: number;        // lightweight cost estimate
+  toolCallCount: number;           // total tool invocations across all agents
+  geminiCallCount: number;         // total Gemini API calls (classification + synthesis + agents)
+}
+
 export interface OrchestratorOutput {
   query: string;
   product: string;
@@ -190,6 +198,7 @@ export interface OrchestratorOutput {
   suggestedFollowUps: string[];
   totalConfidence: ConfidenceLevel;
   generatedAt: string;
+  metrics?: RunMetrics;            // cost + latency — populated by orchestrator
 }
 
 export interface Recommendation {

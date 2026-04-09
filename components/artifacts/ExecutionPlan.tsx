@@ -13,13 +13,19 @@
  */
 
 import { useState } from 'react';
-import { Mail, Linkedin, Target, BookOpen, Calendar, CheckCircle2, ArrowRight, Copy, Check } from 'lucide-react';
+import { Mail, Linkedin, Target, BookOpen, Calendar, CheckCircle2, ArrowRight, Copy, Check, RefreshCw, BarChart3, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/lib/theme';
 import type { ExecutionPlanOutput, CampaignVariant } from '../../lib/agents/types';
+import { recordVariantResult, refineExecutionPlan } from '@/lib/feedback';
 
 interface Props {
   output: ExecutionPlanOutput;
   product: string;
+  // Optional — if provided the variant/refine actions will be wired to the
+  // feedback loop. Omit in preview/storybook contexts.
+  sessionId?: string | null;
+  messageId?: string | null;
+  onRefined?: (plan: ExecutionPlanOutput) => void;
 }
 
 type Tab = 'variants' | 'brief' | 'deployment';
@@ -63,12 +69,169 @@ const PRIORITY_COLORS: Record<string, string> = {
   ads:      '#f59e0b',
 };
 
+// ── Record result mini-form ─────────────────────────────────────────────────
+// Lets the user paste actual campaign numbers for a variant. Stores them via
+// /api/feedback so the refiner can reason over them on the next refine.
+function RecordResultForm({
+  variant,
+  accentColor,
+  sessionId,
+  messageId,
+}: {
+  variant: CampaignVariant;
+  accentColor: string;
+  sessionId: string;
+  messageId?: string | null;
+}) {
+  const { border: borderC, surface: cardBg, text: textMain, textMuted, textSubtle } = useTheme();
+  const [open, setOpen] = useState(false);
+  const [sentCount, setSentCount] = useState('');
+  const [openRate, setOpenRate] = useState('');
+  const [replyRate, setReplyRate] = useState('');
+  const [meetingsBooked, setMeetingsBooked] = useState('');
+  const [hypothesisConfirmed, setHypothesisConfirmed] = useState<'yes' | 'no' | 'unclear' | ''>('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const numOrUndef = (s: string) => {
+    const n = parseFloat(s);
+    return Number.isFinite(n) ? n : undefined;
+  };
+
+  const submit = async () => {
+    if (saving) return;
+    setSaving(true);
+    const ok = await recordVariantResult({
+      sessionId,
+      messageId,
+      variantId: variant.id,
+      variantAngle: variant.angle,
+      hypothesis: variant.hypothesis,
+      successMetric: variant.successMetric,
+      sentCount: numOrUndef(sentCount),
+      openRate: numOrUndef(openRate),
+      replyRate: numOrUndef(replyRate),
+      meetingsBooked: numOrUndef(meetingsBooked),
+      hypothesisConfirmed: hypothesisConfirmed || undefined,
+      notes: notes || undefined,
+    });
+    setSaving(false);
+    if (ok) {
+      setSaved(true);
+      setTimeout(() => { setSaved(false); setOpen(false); }, 1800);
+    }
+  };
+
+  return (
+    <div className="rounded-md overflow-hidden" style={{ border: `1px dashed ${borderC}` }}>
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors"
+        style={{ color: accentColor, background: `${accentColor}08` }}
+      >
+        <span className="flex items-center gap-1.5">
+          <BarChart3 size={11} /> Record campaign result
+        </span>
+        <ChevronDown size={11} style={{ transform: open ? 'rotate(180deg)' : 'none', transition: 'transform 120ms' }} />
+      </button>
+      {open && (
+        <div className="p-3 flex flex-col gap-3" style={{ background: cardBg }}>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <Field label="Sent" value={sentCount} onChange={setSentCount} placeholder="250" />
+            <Field label="Open %" value={openRate} onChange={setOpenRate} placeholder="42" />
+            <Field label="Reply %" value={replyRate} onChange={setReplyRate} placeholder="4.2" />
+            <Field label="Meetings" value={meetingsBooked} onChange={setMeetingsBooked} placeholder="3" />
+          </div>
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Hypothesis confirmed?</p>
+            <div className="flex gap-1">
+              {(['yes', 'no', 'unclear'] as const).map(v => {
+                const active = hypothesisConfirmed === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setHypothesisConfirmed(v)}
+                    className="text-[10px] font-mono px-2 py-1 rounded transition-colors"
+                    style={{
+                      color: active ? accentColor : textSubtle,
+                      background: active ? `${accentColor}15` : 'transparent',
+                      border: `1px solid ${active ? accentColor : borderC}`,
+                    }}
+                  >
+                    {v}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div>
+            <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Notes</p>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              rows={2}
+              placeholder="What worked / what didn't"
+              className="w-full text-[11px] rounded px-2 py-1.5 font-sans resize-none focus:outline-none"
+              style={{ background: 'transparent', border: `1px solid ${borderC}`, color: textMain }}
+            />
+          </div>
+          <div className="flex items-center justify-between">
+            <p className="text-[9px] font-mono" style={{ color: textSubtle }}>
+              Feeds the refiner on your next <span style={{ color: accentColor }}>Refine with feedback</span> click.
+            </p>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={saving || saved}
+              className="text-[10px] font-mono px-3 py-1 rounded transition-colors disabled:opacity-60"
+              style={{ color: '#fff', background: saved ? '#10b981' : accentColor, border: `1px solid ${saved ? '#10b981' : accentColor}` }}
+            >
+              {saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save result'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  const { border: borderC, text: textMain, textSubtle } = useTheme();
+  return (
+    <label className="flex flex-col gap-0.5">
+      <span className="text-[9px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="text-[11px] rounded px-2 py-1 font-mono focus:outline-none"
+        style={{ background: 'transparent', border: `1px solid ${borderC}`, color: textMain }}
+      />
+    </label>
+  );
+}
+
 // ── Active variant detail panel ─────────────────────────────────────────────
 //
 // Renders one variant in full. Hypothesis + success metric are pinned at the
 // top of the panel so users can compare two variants by just clicking between
 // tabs without losing the test context.
-function VariantDetail({ variant, accentColor }: { variant: CampaignVariant; accentColor: string }) {
+function VariantDetail({
+  variant,
+  accentColor,
+  sessionId,
+  messageId,
+}: {
+  variant: CampaignVariant;
+  accentColor: string;
+  sessionId?: string | null;
+  messageId?: string | null;
+}) {
   const { border: borderC, surface2: cardBg, text: textMain, textMuted, textSubtle } = useTheme();
   const email = variant.channels?.email;
   const linkedin = variant.channels?.linkedin;
@@ -174,14 +337,26 @@ function VariantDetail({ variant, accentColor }: { variant: CampaignVariant; acc
             </ul>
           </div>
         )}
+
+        {/* Record result form — only shown when feedback loop is active */}
+        {sessionId && (
+          <RecordResultForm
+            variant={variant}
+            accentColor={accentColor}
+            sessionId={sessionId}
+            messageId={messageId}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-export function ExecutionPlan({ output, product }: Props) {
+export function ExecutionPlan({ output, product, sessionId, messageId, onRefined }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('variants');
   const [activeVariantIdx, setActiveVariantIdx] = useState(0);
+  const [isRefining, setIsRefining] = useState(false);
+  const [refineStatus, setRefineStatus] = useState<string | null>(null);
   const { border: borderC, surface: cardBg, surface2: cardBg2, text: textMain, textMuted, textSubtle } = useTheme();
 
   const variants = output.variants ?? [];
@@ -194,6 +369,29 @@ export function ExecutionPlan({ output, product }: Props) {
   const activeVariant = variants[safeVariantIdx];
   const activeVariantColor = ANGLE_COLORS[safeVariantIdx % ANGLE_COLORS.length];
 
+  const feedbackEnabled = Boolean(sessionId && messageId);
+
+  const handleRefine = async () => {
+    if (!sessionId || !messageId || isRefining) return;
+    setIsRefining(true);
+    setRefineStatus('Pulling feedback…');
+    try {
+      const result = await refineExecutionPlan({ sessionId, messageId });
+      if (result?.executionPlan) {
+        const { recommendationFeedback, recommendationActions, variantResults } = result.feedbackApplied;
+        setRefineStatus(`Refined with ${variantResults} results, ${recommendationFeedback} ratings, ${recommendationActions} actions`);
+        onRefined?.(result.executionPlan);
+      } else {
+        setRefineStatus('Refine failed — check logs');
+      }
+    } catch {
+      setRefineStatus('Refine failed');
+    } finally {
+      setIsRefining(false);
+      setTimeout(() => setRefineStatus(null), 4000);
+    }
+  };
+
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'variants',   label: `Variants (${variants.length})`, icon: <Target size={12} /> },
     { key: 'brief',      label: 'Campaign Brief',  icon: <BookOpen size={12} /> },
@@ -203,23 +401,44 @@ export function ExecutionPlan({ output, product }: Props) {
   return (
     <div className="rounded-lg overflow-hidden" style={{ border: `1px solid #0070f3`, background: cardBg, boxShadow: '0 0 0 1px rgba(0,112,243,0.1)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: `1px solid ${borderC}`, background: 'rgba(0,112,243,0.06)' }}>
-        <div className="flex items-center gap-2.5">
-          <ArrowRight size={14} style={{ color: '#0070f3' }} />
+      <div className="flex items-center justify-between px-5 py-3.5 gap-3" style={{ borderBottom: `1px solid ${borderC}`, background: 'rgba(0,112,243,0.06)' }}>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <ArrowRight size={14} style={{ color: '#0070f3' }} className="shrink-0" />
           <span className="text-[13px] font-semibold" style={{ color: textMain }}>Execution Plan</span>
-          <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.1)', border: '1px solid rgba(0,112,243,0.2)' }}>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded truncate" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.1)', border: '1px solid rgba(0,112,243,0.2)' }}>
             {product}
           </span>
         </div>
-        {/* Confidence */}
-        <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{
-          color:   output.confidence === 'high' ? '#10b981' : output.confidence === 'medium' ? '#f59e0b' : '#6b7280',
-          background: output.confidence === 'high' ? 'rgba(16,185,129,0.1)' : output.confidence === 'medium' ? 'rgba(245,158,11,0.1)' : 'rgba(107,114,128,0.1)',
-          border: `1px solid ${output.confidence === 'high' ? 'rgba(16,185,129,0.25)' : output.confidence === 'medium' ? 'rgba(245,158,11,0.25)' : 'rgba(107,114,128,0.2)'}`,
-        }}>
-          {output.confidence} confidence
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Refine button — pulls feedback + re-runs the execution engine */}
+          {feedbackEnabled && (
+            <button
+              type="button"
+              onClick={handleRefine}
+              disabled={isRefining}
+              className="flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded transition-colors disabled:opacity-50"
+              style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.3)' }}
+              title="Re-run the execution engine with your feedback and recorded variant outcomes"
+            >
+              <RefreshCw size={10} className={isRefining ? 'animate-spin' : ''} />
+              {isRefining ? 'Refining…' : 'Refine with feedback'}
+            </button>
+          )}
+          {/* Confidence */}
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{
+            color:   output.confidence === 'high' ? '#10b981' : output.confidence === 'medium' ? '#f59e0b' : '#6b7280',
+            background: output.confidence === 'high' ? 'rgba(16,185,129,0.1)' : output.confidence === 'medium' ? 'rgba(245,158,11,0.1)' : 'rgba(107,114,128,0.1)',
+            border: `1px solid ${output.confidence === 'high' ? 'rgba(16,185,129,0.25)' : output.confidence === 'medium' ? 'rgba(245,158,11,0.25)' : 'rgba(107,114,128,0.2)'}`,
+          }}>
+            {output.confidence} confidence
+          </span>
+        </div>
       </div>
+      {refineStatus && (
+        <div className="px-5 py-1.5 text-[10px] font-mono" style={{ background: 'rgba(0,112,243,0.06)', color: '#0070f3', borderBottom: `1px solid ${borderC}` }}>
+          {refineStatus}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex" style={{ borderBottom: `1px solid ${borderC}` }}>
@@ -274,7 +493,7 @@ export function ExecutionPlan({ output, product }: Props) {
                   })}
                 </div>
 
-                <VariantDetail variant={activeVariant} accentColor={activeVariantColor} />
+                <VariantDetail variant={activeVariant} accentColor={activeVariantColor} sessionId={sessionId} messageId={messageId} />
 
                 {/* Compare hint + actions */}
                 <div className="flex items-center justify-between text-[10px] font-mono" style={{ color: textSubtle }}>

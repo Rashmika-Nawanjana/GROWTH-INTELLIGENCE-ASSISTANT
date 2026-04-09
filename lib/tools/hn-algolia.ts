@@ -23,7 +23,8 @@ export async function searchHN(query: string, type: 'story' | 'comment' = 'story
   if (!res.ok) {
     return {
       data: [],
-      source: 'Hacker News',
+      source: 'Hacker News (failed)',
+      sourceUrl: url.toString(),
       timestamp: new Date().toISOString(),
       confidence: 0,
       cached: false,

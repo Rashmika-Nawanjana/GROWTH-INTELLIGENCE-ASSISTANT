@@ -8,6 +8,7 @@ import {
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon, Rocket,
+  ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput } from '@/lib/agents/types';
@@ -19,6 +20,9 @@ import {
 import {
   getUserMemory, extractAndUpdateMemory, buildMemoryContext, type UserMemory,
 } from '@/lib/memory';
+import {
+  rateRecommendation, recommendationKey, type RecommendationRating,
+} from '@/lib/feedback';
 
 // Per-session pgvector recall (semantic search over earlier turns in this chat)
 async function recallContextForSession(sessionId: string, query: string): Promise<string> {
@@ -332,6 +336,8 @@ export default function VeracityDashboard() {
   const [followUps, setFollowUps]         = useState<FollowUp[]>([]);
   const [followUpInput, setFollowUpInput] = useState('');
   const [isFollowingUp, setIsFollowingUp] = useState(false);
+  // Track which recommendations the user has rated (key → rating)
+  const [ratedRecs, setRatedRecs] = useState<Record<string, RecommendationRating>>({});
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
@@ -1037,7 +1043,7 @@ export default function VeracityDashboard() {
                 </div>
 
                 <div className="p-5 flex flex-col gap-5">
-                  <ArtifactRenderer output={expandedOutput} product={currentResult?.orchestratorOutput?.product ?? ''} />
+                  <ArtifactRenderer output={expandedOutput} product={currentResult?.orchestratorOutput?.product ?? ''} sessionId={currentSessionId} messageId={null} />
 
                   {expandedOutput.facts.filter(f => !f.startsWith('[')).length > 0 && (
                     <div>
@@ -1078,12 +1084,28 @@ export default function VeracityDashboard() {
                       Intelligence Summary
                     </span>
                   </div>
-                  {currentResult.orchestratorOutput?.product && (
-                    <span className="text-[11px] font-mono px-2 py-0.5 rounded"
-                      style={{ color: '#0070f3', background: 'rgba(0,112,243,0.1)', border: '1px solid rgba(0,112,243,0.2)' }}>
-                      {currentResult.orchestratorOutput.product}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {/* Cost + latency metrics */}
+                    {currentResult.orchestratorOutput?.metrics && (() => {
+                      const m = currentResult.orchestratorOutput.metrics;
+                      return (
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded flex items-center gap-2"
+                          style={{ color: textSubtle, background: cardBg2, border: `1px solid ${borderC}` }}>
+                          <span title="Wall-clock latency">{(m.totalLatencyMs / 1000).toFixed(1)}s</span>
+                          <span style={{ opacity: 0.3 }}>|</span>
+                          <span title="Estimated cost">${m.estimatedCostUsd.toFixed(4)}</span>
+                          <span style={{ opacity: 0.3 }}>|</span>
+                          <span title="Gemini API calls">{m.geminiCallCount} calls</span>
+                        </span>
+                      );
+                    })()}
+                    {currentResult.orchestratorOutput?.product && (
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded"
+                        style={{ color: '#0070f3', background: 'rgba(0,112,243,0.1)', border: '1px solid rgba(0,112,243,0.2)' }}>
+                        {currentResult.orchestratorOutput.product}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="p-5 flex flex-col gap-6">
@@ -1118,6 +1140,43 @@ export default function VeracityDashboard() {
                                 ))}
                               </ul>
                             )}
+                            {/* Feedback thumbs — fire-and-forget to /api/feedback */}
+                            {currentSessionId && (() => {
+                              const rk = recommendationKey(rec.title ?? '', rec.rationale ?? '');
+                              const current = ratedRecs[rk];
+                              const rate = (rating: RecommendationRating) => {
+                                setRatedRecs(prev => ({ ...prev, [rk]: rating }));
+                                rateRecommendation({
+                                  sessionId: currentSessionId,
+                                  title: rec.title,
+                                  rationale: rec.rationale,
+                                  rating,
+                                });
+                              };
+                              return (
+                                <div className="flex items-center gap-1.5 mt-1 pt-2" style={{ borderTop: `1px solid ${borderC}` }}>
+                                  <button type="button" onClick={() => rate('up')} title="Useful"
+                                    className="p-1 rounded transition-colors" style={{
+                                      color: current === 'up' ? '#10b981' : textSubtle,
+                                      background: current === 'up' ? 'rgba(16,185,129,0.12)' : 'transparent',
+                                    }}>
+                                    <ThumbsUp size={12} />
+                                  </button>
+                                  <button type="button" onClick={() => rate('down')} title="Not useful"
+                                    className="p-1 rounded transition-colors" style={{
+                                      color: current === 'down' ? '#ef4444' : textSubtle,
+                                      background: current === 'down' ? 'rgba(239,68,68,0.12)' : 'transparent',
+                                    }}>
+                                    <ThumbsDown size={12} />
+                                  </button>
+                                  {current && (
+                                    <span className="text-[9px] font-mono ml-1" style={{ color: current === 'up' ? '#10b981' : '#ef4444' }}>
+                                      {current === 'up' ? 'Validated' : 'Rejected'}
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            })()}
                           </div>
                         ))}
                       </div>

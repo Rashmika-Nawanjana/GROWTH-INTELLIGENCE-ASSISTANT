@@ -26,10 +26,32 @@ create table if not exists conversations (
 create index if not exists conversations_session
   on conversations (session_id);
 
--- Enable Row Level Security (open for hackathon)
+-- Enable Row Level Security
 alter table signal_cache enable row level security;
 alter table conversations enable row level security;
 
--- Allow all operations (tighten post-hackathon)
-create policy "Allow all on signal_cache" on signal_cache for all using (true) with check (true);
-create policy "Allow all on conversations" on conversations for all using (true) with check (true);
+-- signal_cache: shared, non-user-specific tool result cache.
+-- Contains no PII — only cached Google/Reddit/HN search results.
+-- Allow reads and upserts for all roles (including anon) since the
+-- cache is populated server-side by the orchestrator (which uses the
+-- anon key, not a user session). Deletes are restricted.
+create policy "Anyone can read signal_cache"
+  on signal_cache for select
+  using (true);
+
+create policy "Anyone can insert signal_cache"
+  on signal_cache for insert
+  with check (true);
+
+create policy "Anyone can update signal_cache"
+  on signal_cache for update
+  using (true)
+  with check (true);
+
+-- conversations: legacy table superseded by chat_sessions + chat_messages.
+-- If still in use, restrict to authenticated. New code should use the
+-- migration-001 tables which have proper user_id scoping.
+create policy "Authenticated users can access conversations"
+  on conversations for all
+  using (auth.role() = 'authenticated')
+  with check (auth.role() = 'authenticated');

@@ -72,7 +72,8 @@ export async function searchPatents(
   } catch {
     return {
       data: [],
-      source: 'USPTO Patents',
+      source: 'USPTO Patents (failed)',
+      sourceUrl: `https://patentsview.org/search?q=${encodeURIComponent(query)}`,
       timestamp: new Date().toISOString(),
       confidence: 0,
       cached: false,
