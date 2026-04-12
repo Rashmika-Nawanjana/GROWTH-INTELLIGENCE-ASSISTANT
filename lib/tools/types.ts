@@ -1,9 +1,19 @@
+// Uniform health classification for every tool call.
+//   ok       — primary API returned usable data
+//   degraded — fallback path used (HN substituted for Reddit, raw fetch for
+//              Firecrawl, browser scrape for Meta Ads API, etc.)
+//   failed   — no usable data came back from either path
+// Optional on the type so legacy callers still compile; computeSignalQuality
+// Penalty infers status from confidence when it's missing.
+export type ToolStatus = 'ok' | 'degraded' | 'failed';
+
 export interface ToolResult<T = unknown> {
   data: T;
   source: string;
   sourceUrl?: string;
   timestamp: string;
   confidence: number; // 0-1
+  status?: ToolStatus;
   cached: boolean;
 }
 

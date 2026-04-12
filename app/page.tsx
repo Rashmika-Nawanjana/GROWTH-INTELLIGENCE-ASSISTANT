@@ -11,7 +11,7 @@ import {
   ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
-import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput } from '@/lib/agents/types';
+import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
 import { useTheme } from '@/lib/theme';
 import {
@@ -50,8 +50,20 @@ function indexMessageInBackground(sessionId: string, role: 'user' | 'assistant',
 /* ─── Types ─────────────────────────────────────────────── */
 type SourceLink   = { title: string; url: string };
 type AttachedImage = { dataUrl: string; data: string; mimeType: string; name: string };
+type LiveRunMetrics = {
+  elapsedMs: number;
+  agentCount: number;
+  completedAgentCount: number;
+  failedAgentCount: number;
+  runningAgentCount: number;
+  estimatedCostUsd: number;
+};
 type Message = {
   id: number;
+  // Supabase row id of the persisted chat_messages row. Required for the
+  // feedback/refine loop: /api/refine needs the authoritative messageId to
+  // look up the prior orchestratorOutput and re-run the Execution Engine.
+  persistedId?: string | null;
   role: 'user' | 'assistant';
   type?: 'text' | 'intelligence';
   content: string;
@@ -61,6 +73,7 @@ type Message = {
   recommendations?: any[];
   agentRuns?: AgentRun[];
   orchestratorOutput?: OrchestratorOutput;
+  liveMetrics?: LiveRunMetrics;
 };
 type FollowUp = {
   id: number;
@@ -138,6 +151,7 @@ function hydrateMessage(m: StoredMessage, idx: number): Message {
   const meta = m.metadata ?? {};
   return {
     id: idx,
+    persistedId: m.id,
     role: m.role,
     type: (meta.type as Message['type']) ?? (m.role === 'assistant' ? 'intelligence' : undefined),
     content: m.content,
@@ -428,6 +442,51 @@ export default function VeracityDashboard() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  // Swap a refined execution plan back into the latest assistant message.
+  // Used by ArtifactRenderer → ExecutionPlan's "Refine with feedback" flow.
+  // We also persist the updated orchestratorOutput so future page loads see
+  // the refined plan instead of the original.
+  const handleExecutionPlanRefined = useCallback((plan: ExecutionPlanOutput) => {
+    setMessages(prev => prev.map(m => {
+      if (m.role !== 'assistant' || !m.orchestratorOutput) return m;
+      // Only the most recent assistant message gets refined.
+      const latestAssistant = [...prev].reverse().find(x => x.role === 'assistant');
+      if (m.id !== latestAssistant?.id) return m;
+
+      const updatedOutputs = m.orchestratorOutput.outputs
+        .filter(o => o.artifactType !== 'execution-plan')
+        .concat(plan);
+
+      const updatedOutput: OrchestratorOutput = {
+        ...m.orchestratorOutput,
+        outputs: updatedOutputs,
+      };
+
+      // Best-effort persistence so a later reload reflects the refinement.
+      if (currentSessionId && m.persistedId) {
+        // Re-save as a new message row rather than mutating the prior row
+        // (we don't have an updateMessage helper and keeping history append-only
+        // makes the feedback loop auditable).
+        saveMessage(currentSessionId, 'assistant', m.content, {
+          type: 'intelligence',
+          orchestratorOutput: updatedOutput,
+          recommendations: m.recommendations,
+          sources: m.sources,
+          suggestions: m.suggestions,
+          agentRuns: m.agentRuns,
+          refinedFrom: m.persistedId,
+        }).then(newId => {
+          if (!newId) return;
+          setMessages(prev2 => prev2.map(mm =>
+            mm.id === m.id ? { ...mm, persistedId: newId } : mm
+          ));
+        });
+      }
+
+      return { ...m, orchestratorOutput: updatedOutput };
+    }));
+  }, [currentSessionId]);
+
   const handleSend = async (text: string, imagesToSend?: AttachedImage[]) => {
     const images = imagesToSend ?? attachedImages;
     const effectiveText = text.trim() || (images.length > 0 ? 'Analyse the attached image(s).' : '');
@@ -491,6 +550,7 @@ export default function VeracityDashboard() {
                     ...(m.agentRuns ?? []).filter(r => r.agentId !== chunk.run.agentId),
                     chunk.run,
                   ],
+                  liveMetrics: (chunk.metrics as LiveRunMetrics | undefined) ?? m.liveMetrics,
                 } : m
               ));
             }
@@ -558,7 +618,7 @@ export default function VeracityDashboard() {
           .filter((s, i, a) => s.url && a.findIndex(x => x.url === s.url) === i)
           .slice(0, 12);
 
-        await saveMessage(sessionId, 'assistant', finalOutput.synthesizedAnswer, {
+        const persistedAssistantId = await saveMessage(sessionId, 'assistant', finalOutput.synthesizedAnswer, {
           type: 'intelligence',
           orchestratorOutput: finalOutput,
           recommendations: finalOutput.topRecommendations?.map(r => ({
@@ -573,6 +633,14 @@ export default function VeracityDashboard() {
           suggestions: finalOutput.suggestedFollowUps?.slice(0, 3),
           agentRuns: finalOutput.agentRuns,
         });
+
+        // Stamp the live in-memory message with the Supabase row id so the
+        // "Refine with feedback" button can pass a real messageId to /api/refine.
+        if (persistedAssistantId) {
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, persistedId: persistedAssistantId } : m
+          ));
+        }
 
         indexMessageInBackground(sessionId, 'assistant', finalOutput.synthesizedAnswer);
 
@@ -1043,7 +1111,13 @@ export default function VeracityDashboard() {
                 </div>
 
                 <div className="p-5 flex flex-col gap-5">
-                  <ArtifactRenderer output={expandedOutput} product={currentResult?.orchestratorOutput?.product ?? ''} sessionId={currentSessionId} messageId={null} />
+                  <ArtifactRenderer
+                    output={expandedOutput}
+                    product={currentResult?.orchestratorOutput?.product ?? ''}
+                    sessionId={currentSessionId}
+                    messageId={currentResult?.persistedId ?? null}
+                    onRefined={handleExecutionPlanRefined}
+                  />
 
                   {expandedOutput.facts.filter(f => !f.startsWith('[')).length > 0 && (
                     <div>
@@ -1085,17 +1159,34 @@ export default function VeracityDashboard() {
                     </span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {/* Cost + latency metrics */}
-                    {currentResult.orchestratorOutput?.metrics && (() => {
-                      const m = currentResult.orchestratorOutput.metrics;
+                    {/* Cost + latency + agent count metrics.
+                        Prefers the authoritative RunMetrics on the final result;
+                        falls back to live streamed metrics while agents are still
+                        running so the demo judge always sees numbers moving. */}
+                    {(() => {
+                      const final = currentResult.orchestratorOutput?.metrics;
+                      const live = currentResult.liveMetrics;
+                      if (!final && !live) return null;
+                      const latencyMs = final?.totalLatencyMs ?? live?.elapsedMs ?? 0;
+                      const cost = final?.estimatedCostUsd ?? live?.estimatedCostUsd ?? 0;
+                      const agentTotal = final?.agentCount ?? live?.agentCount ?? 0;
+                      const agentDone = final?.completedAgentCount ?? live?.completedAgentCount ?? 0;
+                      const isLive = !final && !!live;
                       return (
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded flex items-center gap-2"
                           style={{ color: textSubtle, background: cardBg2, border: `1px solid ${borderC}` }}>
-                          <span title="Wall-clock latency">{(m.totalLatencyMs / 1000).toFixed(1)}s</span>
+                          {isLive && <span className="inline-block w-1.5 h-1.5 rounded-full animate-pulse-dot" style={{ background: '#f59e0b' }} />}
+                          <span title="Wall-clock latency">{(latencyMs / 1000).toFixed(1)}s</span>
                           <span style={{ opacity: 0.3 }}>|</span>
-                          <span title="Estimated cost">${m.estimatedCostUsd.toFixed(4)}</span>
+                          <span title="Estimated cost">${cost.toFixed(4)}</span>
                           <span style={{ opacity: 0.3 }}>|</span>
-                          <span title="Gemini API calls">{m.geminiCallCount} calls</span>
+                          <span title="Agents completed / dispatched">{agentDone}/{agentTotal} agents</span>
+                          {final && (
+                            <>
+                              <span style={{ opacity: 0.3 }}>|</span>
+                              <span title="Gemini API calls">{final.geminiCallCount} calls</span>
+                            </>
+                          )}
                         </span>
                       );
                     })()}
@@ -1219,6 +1310,37 @@ export default function VeracityDashboard() {
                 </div>
               </div>
             )}
+
+            {/* ── Inline Execution Plan ─────────────────────────────────
+                The Execution Engine output is the most actionable artifact
+                in the run (variants, hypotheses, campaign brief, deployment
+                timeline), so we surface it inline at the top of the thread
+                instead of hiding it behind the "execution-engine" domain
+                card. Keeps the feedback + refine controls one click away. */}
+            {(() => {
+              const executionOutput = currentResult?.orchestratorOutput?.outputs?.find(
+                o => o.artifactType === 'execution-plan'
+              ) as ExecutionPlanOutput | undefined;
+              if (!executionOutput) return null;
+              if (!executionOutput.variants?.length && !executionOutput.brief?.objective) return null;
+              return (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <Rocket size={12} style={{ color: '#0070f3' }} />
+                    <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textMuted }}>
+                      Execution Plan — Research → Action
+                    </span>
+                  </div>
+                  <ArtifactRenderer
+                    output={executionOutput}
+                    product={currentResult?.orchestratorOutput?.product ?? ''}
+                    sessionId={currentSessionId}
+                    messageId={currentResult?.persistedId ?? null}
+                    onRefined={handleExecutionPlanRefined}
+                  />
+                </div>
+              );
+            })()}
 
             {/* ── Inline Mind Map ── */}
             {(() => {

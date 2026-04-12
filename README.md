@@ -6,7 +6,7 @@
 ![AI](https://img.shields.io/badge/Gemini_2.0_Flash-AI-blue?logo=google)
 ![Database](https://img.shields.io/badge/Supabase-Database-green?logo=supabase)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue?logo=typescript)
-![Tests](https://img.shields.io/badge/Tests-51_passing-brightgreen?logo=vitest)
+![Tests](https://img.shields.io/badge/Tests-91_passing-brightgreen?logo=vitest)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
@@ -26,13 +26,13 @@ The system is built around a **two-stage multi-agent architecture** powered by *
 - **9 coordinated agents** — 6 research + 3 execution sub-agents, all grounded in live-fetched signals
 - **Real-time streaming** — watch agents complete live via Server-Sent Events
 - **Research to Action loop** — research, execute, feedback, refine — measurable learning across cycles
-- **Multimodal input** — attach images (screenshots, charts, pricing tables) alongside text
+- **Multimodal input** — attach images (screenshots, charts, pricing tables) that are passed to every agent's Gemini call via `buildContentParts()`
 - **Persistent memory** — the system remembers your company context across sessions
 - **Structured output** — confidence scores, source attribution, and strategic recommendations
 - **Cost & latency tracking** — every query shows wall-clock time, estimated cost, and API call count
 - **Threaded follow-ups** — ask follow-up questions with full conversation context preserved
 - **Session history** — all queries and follow-ups saved and recoverable from the sidebar
-- **51 automated tests** — execution intent detection, empty artifact safety, memory contract
+- **91 automated tests** — execution intent detection, empty artifact safety, memory contract, tool fallback penalties
 
 ---
 
@@ -147,6 +147,8 @@ GROWTH-INTELLIGENCE-ASSISTANT/
 │   │   ├── pricing.ts           # Pricing Intelligence agent
 │   │   ├── positioning.ts       # Brand Positioning agent
 │   │   ├── adjacent.ts          # Adjacent Market agent
+│   │   ├── execution-intent.ts  # Deterministic regex execution intent detector
+│   │   ├── gemini-utils.ts     # Shared multimodal Gemini parts builder
 │   │   └── execution/
 │   │       ├── execution-engine.ts   # Stage 2 parent (fans out 3 sub-agents)
 │   │       ├── content-agent.ts      # Campaign brief + copy angles
@@ -160,8 +162,9 @@ GROWTH-INTELLIGENCE-ASSISTANT/
 │   │   ├── meta-ads.ts          # Meta Ad Library browser scrape
 │   │   ├── linkedin-ads.ts      # LinkedIn Ad Library scrape
 │   │   ├── patents.ts           # USPTO PatentsView API
+│   │   ├── fallback.ts          # Uniform tool status + signal quality penalties
 │   │   ├── index.ts             # Re-exports
-│   │   └── types.ts             # ToolResult<T> + domain types
+│   │   └── types.ts             # ToolResult<T> + ToolStatus + domain types
 │   ├── feedback.ts              # Client-side feedback helpers
 │   ├── memory.ts                # User memory read/write/build context
 │   ├── conversations.ts         # Session CRUD (Supabase)
@@ -172,9 +175,10 @@ GROWTH-INTELLIGENCE-ASSISTANT/
 │   └── theme.tsx                # Dark/light theme context
 │
 ├── __tests__/
-│   ├── execution-intent.test.ts # Regex detector: 27 cases
+│   ├── execution-intent.test.ts # Regex detector: 57 cases (41 positive, 16 negative)
 │   ├── empty-artifacts.test.ts  # withArrayDefaults: all 8 artifact types
-│   └── memory-context.test.ts   # buildMemoryContext + POST body contract
+│   ├── memory-context.test.ts   # buildMemoryContext + POST body contract
+│   └── tool-fallback.test.ts    # Signal quality penalties + tool result extraction
 │
 ├── supabase/
 │   ├── schema.sql               # Base schema (signal_cache, conversations)
@@ -405,13 +409,14 @@ Per-agent latencies are tracked in `RunMetrics.agentLatencies` for profiling.
 npm test
 ```
 
-**51 tests across 3 suites:**
+**91 tests across 4 suites:**
 
 | Suite | Tests | What it validates |
 |---|---|---|
-| `execution-intent.test.ts` | 27 | Regex detector fires for execution queries, stays silent for research |
+| `execution-intent.test.ts` | 57 | Regex detector fires for execution queries (41 positive), stays silent for research (16 negative) |
 | `empty-artifacts.test.ts` | 16 | `withArrayDefaults` patches undefined/null arrays for all 8 artifact types |
 | `memory-context.test.ts` | 8 | `buildMemoryContext` output shape + POST body uses `memoryContext` (not `recalledContext`) |
+| `tool-fallback.test.ts` | 10 | `buildToolResult` status/confidence mapping, `computeSignalQualityPenalty` scaling, `extractToolResults` from settled promises |
 
 ---
 
@@ -444,11 +449,13 @@ const ALL_AGENTS: AgentConfig[] = [...existingAgents, myAgent];
 
 ### Tool Fallback Contract
 
-All tools in `lib/tools/` follow a normalized contract:
+All tools in `lib/tools/` follow a normalized contract via `buildToolResult()` from `lib/tools/fallback.ts`:
+
 - Always return `ToolResult<T>` — never throw
-- On failure: `data: []`, `confidence: 0`, `source: "ToolName (failed)"`
+- Every result carries a `status: 'ok' | 'degraded' | 'failed'` with canonical confidence anchors (0.85 / 0.55 / 0.15)
+- Fallback chains: Reddit → HN Algolia, Firecrawl → direct scrape, Meta Ad API → browser scrape
+- Agents apply `computeSignalQualityPenalty()` to their Gemini-reported confidence — a synthesis with 3 failed tools scores lower than one where all tools succeeded
 - Include `sourceUrl` in all paths (success and failure)
-- Fallback chains: Reddit -> HN Algolia, Firecrawl -> direct scrape, Meta Ad API -> browser scrape
 
 ### Dark/Light Theme
 

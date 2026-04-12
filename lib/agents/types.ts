@@ -185,6 +185,9 @@ export interface RunMetrics {
   estimatedCostUsd: number;        // lightweight cost estimate
   toolCallCount: number;           // total tool invocations across all agents
   geminiCallCount: number;         // total Gemini API calls (classification + synthesis + agents)
+  agentCount: number;              // total agents dispatched (research + execution)
+  completedAgentCount: number;     // agents that finished with status "completed"
+  failedAgentCount: number;        // agents that finished with status "failed"
 }
 
 export interface OrchestratorOutput {

@@ -12,8 +12,8 @@
  *  - Each variant clearly shows the falsifiable hypothesis
  */
 
-import { useState } from 'react';
-import { Mail, Linkedin, Target, BookOpen, Calendar, CheckCircle2, ArrowRight, Copy, Check, RefreshCw, BarChart3, ChevronDown } from 'lucide-react';
+import { useState, useCallback } from 'react';
+import { Mail, Linkedin, Target, BookOpen, Calendar, CheckCircle2, Circle, ArrowRight, Copy, Check, RefreshCw, BarChart3, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/lib/theme';
 import type { ExecutionPlanOutput, CampaignVariant } from '../../lib/agents/types';
 import { recordVariantResult, refineExecutionPlan } from '@/lib/feedback';
@@ -77,11 +77,13 @@ function RecordResultForm({
   accentColor,
   sessionId,
   messageId,
+  onSaved,
 }: {
   variant: CampaignVariant;
   accentColor: string;
   sessionId: string;
   messageId?: string | null;
+  onSaved?: (variantId: string) => void;
 }) {
   const { border: borderC, surface: cardBg, text: textMain, textMuted, textSubtle } = useTheme();
   const [open, setOpen] = useState(false);
@@ -119,6 +121,7 @@ function RecordResultForm({
     setSaving(false);
     if (ok) {
       setSaved(true);
+      onSaved?.(variant.id);
       setTimeout(() => { setSaved(false); setOpen(false); }, 1800);
     }
   };
@@ -226,11 +229,13 @@ function VariantDetail({
   accentColor,
   sessionId,
   messageId,
+  onResultSaved,
 }: {
   variant: CampaignVariant;
   accentColor: string;
   sessionId?: string | null;
   messageId?: string | null;
+  onResultSaved?: (variantId: string) => void;
 }) {
   const { border: borderC, surface2: cardBg, text: textMain, textMuted, textSubtle } = useTheme();
   const email = variant.channels?.email;
@@ -345,6 +350,7 @@ function VariantDetail({
             accentColor={accentColor}
             sessionId={sessionId}
             messageId={messageId}
+            onSaved={onResultSaved}
           />
         )}
       </div>
@@ -357,6 +363,10 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
   const [activeVariantIdx, setActiveVariantIdx] = useState(0);
   const [isRefining, setIsRefining] = useState(false);
   const [refineStatus, setRefineStatus] = useState<string | null>(null);
+  // Track which variants have recorded results (local state — set by RecordResultForm callback)
+  const [variantsWithResults, setVariantsWithResults] = useState<Set<string>>(new Set());
+  // Track completed deployment steps (local toggle)
+  const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const { border: borderC, surface: cardBg, surface2: cardBg2, text: textMain, textMuted, textSubtle } = useTheme();
 
   const variants = output.variants ?? [];
@@ -370,6 +380,19 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
   const activeVariantColor = ANGLE_COLORS[safeVariantIdx % ANGLE_COLORS.length];
 
   const feedbackEnabled = Boolean(sessionId && messageId);
+
+  const onVariantResultSaved = useCallback((variantId: string) => {
+    setVariantsWithResults(prev => new Set(prev).add(variantId));
+  }, []);
+
+  const toggleStepComplete = useCallback((stepIdx: number) => {
+    setCompletedSteps(prev => {
+      const next = new Set(prev);
+      if (next.has(stepIdx)) next.delete(stepIdx);
+      else next.add(stepIdx);
+      return next;
+    });
+  }, []);
 
   const handleRefine = async () => {
     if (!sessionId || !messageId || isRefining) return;
@@ -395,7 +418,7 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
     { key: 'variants',   label: `Variants (${variants.length})`, icon: <Target size={12} /> },
     { key: 'brief',      label: 'Campaign Brief',  icon: <BookOpen size={12} /> },
-    { key: 'deployment', label: `Deployment (${deployment.length})`, icon: <Calendar size={12} /> },
+    { key: 'deployment', label: `Deployment (${completedSteps.size > 0 ? `${completedSteps.size}/${deployment.length}` : deployment.length})`, icon: <Calendar size={12} /> },
   ];
 
   return (
@@ -466,6 +489,34 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
           <div className="flex flex-col gap-4">
             {variants.length > 0 && activeVariant ? (
               <>
+                {/* Variant outcome tracking progress */}
+                {feedbackEnabled && variants.length > 0 && (
+                  <div className="flex items-center gap-3 rounded-md px-3 py-2" style={{ background: `${variantsWithResults.size > 0 ? '#10b981' : '#0070f3'}08`, border: `1px solid ${variantsWithResults.size > 0 ? 'rgba(16,185,129,0.2)' : 'rgba(0,112,243,0.15)'}` }}>
+                    <div className="flex items-center gap-1.5">
+                      <BarChart3 size={12} style={{ color: variantsWithResults.size > 0 ? '#10b981' : '#0070f3' }} />
+                      <span className="text-[10px] font-mono font-semibold" style={{ color: variantsWithResults.size > 0 ? '#10b981' : '#0070f3' }}>
+                        {variantsWithResults.size}/{variants.length} tracked
+                      </span>
+                    </div>
+                    <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: `${borderC}` }}>
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{
+                          width: `${(variantsWithResults.size / variants.length) * 100}%`,
+                          background: variantsWithResults.size === variants.length ? '#10b981' : '#0070f3',
+                        }}
+                      />
+                    </div>
+                    <span className="text-[9px] font-mono" style={{ color: textSubtle }}>
+                      {variantsWithResults.size === 0
+                        ? 'Record campaign results below to feed the refiner'
+                        : variantsWithResults.size === variants.length
+                          ? 'All variants tracked — ready to refine'
+                          : `${variants.length - variantsWithResults.size} remaining`}
+                    </span>
+                  </div>
+                )}
+
                 {/* Variant tab strip — one button per variant */}
                 <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Variants">
                   {variants.map((v, i) => {
@@ -493,7 +544,7 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
                   })}
                 </div>
 
-                <VariantDetail variant={activeVariant} accentColor={activeVariantColor} sessionId={sessionId} messageId={messageId} />
+                <VariantDetail variant={activeVariant} accentColor={activeVariantColor} sessionId={sessionId} messageId={messageId} onResultSaved={onVariantResultSaved} />
 
                 {/* Compare hint + actions */}
                 <div className="flex items-center justify-between text-[10px] font-mono" style={{ color: textSubtle }}>
@@ -607,39 +658,72 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
           <div className="flex flex-col gap-3">
             {deployment.length > 0 ? (
               <>
-                <p className="text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>
-                  Sequenced rollout — {deployment.length} {deployment.length === 1 ? 'step' : 'steps'}
-                </p>
+                {/* Progress summary */}
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>
+                    Sequenced rollout — {deployment.length} {deployment.length === 1 ? 'step' : 'steps'}
+                  </p>
+                  {completedSteps.size > 0 && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{
+                      color: completedSteps.size === deployment.length ? '#10b981' : '#0070f3',
+                      background: completedSteps.size === deployment.length ? 'rgba(16,185,129,0.1)' : 'rgba(0,112,243,0.08)',
+                      border: `1px solid ${completedSteps.size === deployment.length ? 'rgba(16,185,129,0.25)' : 'rgba(0,112,243,0.2)'}`,
+                    }}>
+                      {completedSteps.size}/{deployment.length} completed
+                    </span>
+                  )}
+                </div>
+
                 {/* Sort by day so the timeline always reads top-to-bottom in chronological order */}
-                {[...deployment].sort((a, b) => a.day - b.day).map((step, i) => (
-                  <div key={`deploy-${i}-${step.day}-${step.channel}`} className="flex items-start gap-3 rounded-md px-3 py-2.5"
-                    style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
-                    {/* Day badge */}
-                    <div className="flex flex-col items-center gap-0.5 shrink-0 w-10">
-                      <span className="text-[9px] font-mono" style={{ color: textSubtle }}>Day</span>
-                      <span className="text-[16px] font-bold font-mono" style={{ color: '#0070f3', lineHeight: 1 }}>{step.day}</span>
-                    </div>
-                    {/* Separator */}
-                    <div className="w-px self-stretch mx-1" style={{ background: borderC }} />
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded"
-                          style={{
-                            color: PRIORITY_COLORS[step.channel] ?? textSubtle,
-                            background: `${PRIORITY_COLORS[step.channel] ?? '#666'}15`,
-                            border: `1px solid ${PRIORITY_COLORS[step.channel] ?? '#666'}30`,
-                          }}>
-                          {CHANNEL_ICONS[step.channel]} {step.channel}
-                        </span>
+                {[...deployment].sort((a, b) => a.day - b.day).map((step, i) => {
+                  const isDone = completedSteps.has(i);
+                  return (
+                    <div key={`deploy-${i}-${step.day}-${step.channel}`}
+                      className="flex items-start gap-3 rounded-md px-3 py-2.5 transition-opacity"
+                      style={{
+                        background: isDone ? `${cardBg2}` : cardBg2,
+                        border: `1px solid ${isDone ? 'rgba(16,185,129,0.3)' : borderC}`,
+                        opacity: isDone ? 0.65 : 1,
+                      }}>
+                      {/* Completion toggle */}
+                      <button
+                        type="button"
+                        onClick={() => toggleStepComplete(i)}
+                        className="mt-2 shrink-0 transition-colors"
+                        title={isDone ? 'Mark as pending' : 'Mark as completed'}
+                        style={{ color: isDone ? '#10b981' : borderC }}
+                      >
+                        {isDone
+                          ? <CheckCircle2 size={16} />
+                          : <Circle size={16} />}
+                      </button>
+                      {/* Day badge */}
+                      <div className="flex flex-col items-center gap-0.5 shrink-0 w-10">
+                        <span className="text-[9px] font-mono" style={{ color: textSubtle }}>Day</span>
+                        <span className="text-[16px] font-bold font-mono" style={{ color: isDone ? '#10b981' : '#0070f3', lineHeight: 1 }}>{step.day}</span>
                       </div>
-                      <p className="text-[12px] font-medium" style={{ color: textMain }}>{step.action}</p>
-                      <p className="text-[11px] mt-0.5" style={{ color: textSubtle }}>
-                        <span className="opacity-70">Audience: </span>{step.audience}
-                      </p>
+                      {/* Separator */}
+                      <div className="w-px self-stretch mx-1" style={{ background: borderC }} />
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded"
+                            style={{
+                              color: PRIORITY_COLORS[step.channel] ?? textSubtle,
+                              background: `${PRIORITY_COLORS[step.channel] ?? '#666'}15`,
+                              border: `1px solid ${PRIORITY_COLORS[step.channel] ?? '#666'}30`,
+                            }}>
+                            {CHANNEL_ICONS[step.channel]} {step.channel}
+                          </span>
+                        </div>
+                        <p className="text-[12px] font-medium" style={{ color: textMain, textDecoration: isDone ? 'line-through' : 'none' }}>{step.action}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: textSubtle }}>
+                          <span className="opacity-70">Audience: </span>{step.audience}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </>
             ) : (
               <p className="text-[13px]" style={{ color: textMuted }}>No deployment steps generated.</p>

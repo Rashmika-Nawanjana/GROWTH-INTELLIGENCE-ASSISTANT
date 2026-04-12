@@ -69,21 +69,30 @@ export async function saveMessage(
   role: 'user' | 'assistant',
   content: string,
   metadata: Record<string, unknown> = {},
-): Promise<void> {
+): Promise<string | null> {
   const supabase = createClient();
-  const { error } = await supabase.from('chat_messages').insert({
-    session_id: sessionId,
-    role,
-    content,
-    metadata,
-  });
-  if (error) console.error('saveMessage:', error.message);
+  const { data, error } = await supabase
+    .from('chat_messages')
+    .insert({
+      session_id: sessionId,
+      role,
+      content,
+      metadata,
+    })
+    .select('id')
+    .single();
+  if (error) {
+    console.error('saveMessage:', error.message);
+    return null;
+  }
 
   // Keep updated_at fresh on the session
   await supabase
     .from('chat_sessions')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', sessionId);
+
+  return (data?.id as string | undefined) ?? null;
 }
 
 export async function loadMessages(sessionId: string): Promise<StoredMessage[]> {

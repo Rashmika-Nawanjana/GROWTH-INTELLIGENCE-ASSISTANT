@@ -1,6 +1,7 @@
 import { getCached, setCache } from '../supabase';
 import { scrapePage } from './firecrawl';
 import type { ToolResult, MetaAd } from './types';
+import { buildToolResult } from './fallback';
 
 // ── Meta Ad Library — browser scrape via Firecrawl ───────────────────────────
 // The official API only covers political/EU ads.
@@ -59,27 +60,22 @@ export async function searchMetaAds(
     const scraped = await scrapePage(url);
     const ads = parseAdsFromMarkdown(scraped.data.markdown, advertiserName);
 
-    const result: ToolResult<MetaAd[]> = {
+    const result = buildToolResult<MetaAd[]>({
       data: ads,
+      status: ads.length > 0 ? 'degraded' : 'failed',
       source: 'Meta Ad Library (browser scrape)',
       sourceUrl: url,
-      timestamp: new Date().toISOString(),
-      confidence: ads.length > 0 ? 0.7 : 0.3,
-      cached: false,
-    };
+    });
 
     await setCache('meta_ads', cacheKey, result);
     return result;
   } catch {
-    // Graceful degradation — return empty, agents continue without this signal
-    return {
+    return buildToolResult<MetaAd[]>({
       data: [],
+      status: 'failed',
       source: 'Meta Ad Library (browser scrape)',
       sourceUrl: url,
-      timestamp: new Date().toISOString(),
-      confidence: 0,
-      cached: false,
-    };
+    });
   }
 }
 

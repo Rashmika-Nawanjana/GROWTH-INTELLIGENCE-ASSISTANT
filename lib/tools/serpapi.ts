@@ -1,5 +1,6 @@
 import { getCached, setCache } from '../supabase';
 import type { ToolResult, SearchResult, TrendPoint } from './types';
+import { buildToolResult } from './fallback';
 
 const BASE_URL = 'https://serpapi.com/search';
 const API_KEY = process.env.SERPAPI_KEY;
@@ -23,14 +24,12 @@ async function serpFetch(params: Record<string, string>): Promise<unknown> {
 // Normalized empty result — always returned on failure instead of throwing,
 // so callers never need try/catch around tool calls.
 function emptySearchResult(source: string, query: string): ToolResult<SearchResult[]> {
-  return {
+  return buildToolResult<SearchResult[]>({
     data: [],
+    status: 'failed',
     source: `${source} (failed)`,
     sourceUrl: `https://google.com/search?q=${encodeURIComponent(query)}`,
-    timestamp: new Date().toISOString(),
-    confidence: 0,
-    cached: false,
-  };
+  });
 }
 
 export async function searchWeb(query: string): Promise<ToolResult<SearchResult[]>> {
@@ -50,14 +49,12 @@ export async function searchWeb(query: string): Promise<ToolResult<SearchResult[
       date: r.date,
     }));
 
-    const result: ToolResult<SearchResult[]> = {
+    const result = buildToolResult<SearchResult[]>({
       data: results,
+      status: results.length > 0 ? 'ok' : 'failed',
       source: 'SerpAPI / Google',
       sourceUrl: `https://google.com/search?q=${encodeURIComponent(query)}`,
-      timestamp: new Date().toISOString(),
-      confidence: 0.85,
-      cached: false,
-    };
+    });
 
     await setCache('serpapi_search', cacheKey, result);
     return result;
@@ -83,14 +80,12 @@ export async function searchNews(query: string): Promise<ToolResult<SearchResult
       date: r.date,
     }));
 
-    const result: ToolResult<SearchResult[]> = {
+    const result = buildToolResult<SearchResult[]>({
       data: results,
+      status: results.length > 0 ? 'ok' : 'failed',
       source: 'SerpAPI / Google News',
       sourceUrl: `https://news.google.com/search?q=${encodeURIComponent(query)}`,
-      timestamp: new Date().toISOString(),
-      confidence: 0.9,
-      cached: false,
-    };
+    });
 
     await setCache('serpapi_news', cacheKey, result);
     return result;
@@ -127,26 +122,22 @@ export async function searchTrends(keywords: string[]): Promise<ToolResult<Trend
       }
     }
 
-    const result: ToolResult<TrendPoint[]> = {
+    const result = buildToolResult<TrendPoint[]>({
       data: points,
+      status: points.length > 0 ? 'ok' : 'failed',
       source: 'SerpAPI / Google Trends',
       sourceUrl: `https://trends.google.com/trends/explore?q=${encodeURIComponent(keywords.join(','))}`,
-      timestamp: new Date().toISOString(),
-      confidence: 0.8,
-      cached: false,
-    };
+    });
 
     await setCache('serpapi_trends', cacheKey, result);
     return result;
   } catch {
-    return {
+    return buildToolResult<TrendPoint[]>({
       data: [],
+      status: 'failed',
       source: 'SerpAPI / Google Trends (failed)',
       sourceUrl: `https://trends.google.com/trends/explore?q=${encodeURIComponent(keywords.join(','))}`,
-      timestamp: new Date().toISOString(),
-      confidence: 0,
-      cached: false,
-    };
+    });
   }
 }
 
@@ -171,13 +162,11 @@ export async function searchAdsTransparency(advertiser: string): Promise<ToolRes
       snippet: r.snippet ?? '',
     }));
 
-    const result: ToolResult<SearchResult[]> = {
+    const result = buildToolResult<SearchResult[]>({
       data: results,
+      status: results.length > 0 ? 'ok' : 'failed',
       source: 'SerpAPI / Google Ads Transparency',
-      timestamp: new Date().toISOString(),
-      confidence: 0.7,
-      cached: false,
-    };
+    });
 
     await setCache('serpapi_search', cacheKey, result);
     return result;

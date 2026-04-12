@@ -6,6 +6,7 @@ import { pricingAgent } from './pricing';
 import { positioningAgent } from './positioning';
 import { adjacentAgent } from './adjacent';
 import { executionEngineAgent } from './execution/execution-engine';
+import { detectExecutionIntent } from './execution-intent';
 import type {
   AgentConfig,
   AgentContext,
@@ -57,31 +58,6 @@ interface ClassificationResult {
   domains: IntelligenceDomain[];
   intent: string;
   runExecution: boolean;  // true when query is execution-intent (write copy, outreach, variants, brief)
-}
-
-// Deterministic execution-intent detector. Runs alongside the LLM classifier
-// so we never miss obvious "write copy / draft outreach / generate variants"
-// queries. If either signal fires, the Execution Engine kicks in.
-//
-// The patterns are intentionally biased toward generation verbs combined
-// with marketing/outreach artifacts — they should not fire on pure research
-// questions like "compare X vs Y" or "what is the market for X".
-const EXECUTION_INTENT_PATTERNS: RegExp[] = [
-  // verb + artifact ("write a cold email", "draft an outreach sequence")
-  /\b(write|draft|create|generate|produce|craft|compose|build|make|give\s+me|send\s+me|show\s+me)\b[^.?!]*\b(cold\s*email|email|linkedin|outreach|sequence|message|messages|copy|post|posts|caption|captions|brief|one[-\s]?pager|pitch|landing\s*page|ad|ads|campaign|cta|hook|headline|tagline|script|dm|outbound|nurture)\b/i,
-  // explicit framings
-  /\b(campaign\s*brief|positioning\s*guide|strategy\s*doc|messaging\s*guide|launch\s*plan|go[-\s]?to[-\s]?market\s*plan|gtm\s*plan)\b/i,
-  // A/B testing language
-  /\b(a\/b|a\s*b\s*test|ab\s*test|variants?|test\s*angles?|message\s*variants?|message\s*test|hypotheses?|falsifiable)\b/i,
-  // ship / launch / deploy verbs paired with marketing artifact
-  /\b(ship|launch|deploy|roll\s*out)\b[^.?!]*\b(campaign|outreach|email|sequence|copy|message|post|ad)\b/i,
-  // bare imperatives that almost always mean "generate something"
-  /^\s*(write|draft|generate|create|compose)\s+/i,
-];
-
-function detectExecutionIntent(query: string): boolean {
-  if (!query?.trim()) return false;
-  return EXECUTION_INTENT_PATTERNS.some(re => re.test(query));
 }
 
 async function classifyQuery(
@@ -505,6 +481,7 @@ export async function orchestrate(
   // We estimate based on completed agents (a rough heuristic — agents don't
   // currently report exact tool call counts back).
   const completedAgents = agentRuns.filter(r => r.status === 'completed').length;
+  const failedAgents = agentRuns.filter(r => r.status === 'failed').length;
   const toolCallCount = completedAgents * 3; // conservative average
 
   const metrics: RunMetrics = {
@@ -513,6 +490,9 @@ export async function orchestrate(
     estimatedCostUsd: Number.parseFloat((geminiCallCount * EST_COST_PER_GEMINI_CALL).toFixed(5)),
     toolCallCount,
     geminiCallCount,
+    agentCount: agentRuns.length,
+    completedAgentCount: completedAgents,
+    failedAgentCount: failedAgents,
   };
 
   return {
