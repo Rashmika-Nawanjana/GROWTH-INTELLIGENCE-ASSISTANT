@@ -63,6 +63,11 @@ interface ClassificationResult {
   runExecution: boolean;  // true when query is execution-intent (write copy, outreach, variants, brief)
 }
 
+interface OrchestrateOptions {
+  injectedContext?: string; // extra context injected into agents and synthesizer (e.g. feedback loop)
+  forceExecution?: boolean; // force stage-2 execution even when classifier says false
+}
+
 async function classifyQuery(
   query: string,
   history: ConversationMessage[],
@@ -361,6 +366,7 @@ export async function orchestrate(
   onAgentUpdate?: (run: AgentRun) => void,
   images: ImageAttachment[] = [],
   memoryContext?: string,
+  options?: OrchestrateOptions,
 ): Promise<OrchestratorOutput> {
   const orchestrationStart = Date.now();
 
@@ -369,6 +375,7 @@ export async function orchestrate(
   let geminiCallCount = 1;
 
   const { product, competitor, productUrl, competitorUrl, intent, runExecution } = classification;
+  const shouldRunExecution = runExecution || options?.forceExecution === true;
 
   // Build prior context string for agents
   const priorContext = history
@@ -376,13 +383,21 @@ export async function orchestrate(
     .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content.slice(0, 400)}`)
     .join('\n');
 
+  const combinedPriorContext = [priorContext, options?.injectedContext]
+    .filter(Boolean)
+    .join('\n\n');
+
+  const synthesisMemoryContext = [memoryContext, options?.injectedContext]
+    .filter(Boolean)
+    .join('\n\n') || undefined;
+
   const agentContext: AgentContext = {
     query: intent,
     product,
     competitor,
     productUrl,
     competitorUrl,
-    priorContext: priorContext || undefined,
+    priorContext: combinedPriorContext || undefined,
     images: images.length > 0 ? images : undefined,
     memoryContext: memoryContext || undefined,
   };
@@ -431,7 +446,7 @@ export async function orchestrate(
   geminiCallCount += agentsToRun.length;
 
   // ── Stage 2: Execution Engine (only if execution intent detected) ──────────
-  if (runExecution) {
+  if (shouldRunExecution) {
     const execStart = Date.now();
     const execRun: AgentRun = {
       agentId: 'execution-engine',
@@ -462,7 +477,7 @@ export async function orchestrate(
 
   // Step 4: Synthesise + generate mind map in parallel (2 Gemini calls)
   const [synthesisResult, mindMapResult] = await Promise.all([
-    synthesize(query, outputs, history, images, memoryContext),
+    synthesize(query, outputs, history, images, synthesisMemoryContext),
     generateMindMap(query, product, outputs),
   ]);
   geminiCallCount += 2; // synthesis + mind map

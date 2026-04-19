@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { AgentOutput, MarketTrendsOutput, CompetitiveOutput, WinLossOutput, PricingOutput, PositioningOutput, AdjacentOutput, MindMapOutput, ExecutionPlanOutput, ForecastOutput } from '@/lib/agents/types';
+import type { AgentOutput, MarketTrendsOutput, CompetitiveOutput, WinLossOutput, PricingOutput, PositioningOutput, AdjacentOutput, MindMapOutput, ExecutionPlanOutput, ForecastOutput, OrchestratorOutput, RefinementDelta } from '@/lib/agents/types';
 import { TrendChart } from './TrendChart';
 import { CompetitiveMatrix } from './CompetitiveMatrix';
 import { WinLossScorecard } from './WinLossScorecard';
@@ -19,7 +19,7 @@ interface Props {
   // Feedback loop — only needed for ExecutionPlan; ignored by other artifacts.
   sessionId?: string | null;
   messageId?: string | null;
-  onRefined?: (plan: ExecutionPlanOutput) => void;
+  onRefined?: (result: { plan: ExecutionPlanOutput; orchestratorOutput?: OrchestratorOutput; changes?: RefinementDelta[] }) => void;
 }
 
 // Defensively normalise an output's arrays so child components can iterate

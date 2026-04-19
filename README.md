@@ -36,6 +36,71 @@ The system is built around a **two-stage multi-agent architecture** powered by *
 
 ---
 
+## 4-Member Team Split (Execution Plan)
+
+Use this ownership model to maximize judging score in the final sprint.
+
+### Member 1 — Orchestration + Closed Loop (Backend Lead)
+
+**Primary goal:** Guarantee true end-to-end loop behavior (research -> execution -> feedback -> refined research).
+
+- Owns: `app/api/refine/route.ts`, `lib/agents/orchestrator.ts`, `lib/agents/types.ts`
+- Delivers:
+  - Refine flow re-runs full orchestration, not only execution generation
+  - Feedback context is injected into research stage before synthesis
+  - Updated outputs show what changed after feedback
+- Demo proof:
+  - "ROI angle got 3x replies" leads to a visibly updated next-cycle strategy
+
+### Member 2 — Agent Quality + Grounding (AI/Prompt Lead)
+
+**Primary goal:** Make every generated variant traceable to live research signals.
+
+- Owns: `lib/agents/execution/content-agent.ts`, `lib/agents/execution/ab-variant-agent.ts`, `lib/agents/execution/execution-engine.ts`
+- Delivers:
+  - Every execution variant includes explicit grounded signals from Stage 1
+  - A/B hypotheses are falsifiable and tied to specific findings
+  - Confidence and source quality are preserved through execution outputs
+- Demo proof:
+  - Judges can map each copy angle back to concrete research evidence
+
+### Member 3 — Ephemeral UI + Demo Experience (Frontend Lead)
+
+**Primary goal:** Make process visibility and in-thread interfaces unmistakable.
+
+- Owns: `app/page.tsx`, `components/artifacts/ExecutionPlan.tsx`, `components/artifacts/ArtifactRenderer.tsx`
+- Delivers:
+  - Inline clarification UI (channel selector: Email / LinkedIn / Both)
+  - Strong live agent status visuals (pending/running/completed/failed)
+  - Clear recommended variant highlighting in execution artifacts
+- Demo proof:
+  - User clicks in-thread controls instead of typing, and output adapts immediately
+
+### Member 4 — Signals, Metrics, and Stability (Tools + QA Lead)
+
+**Primary goal:** Prove live-signal reliability, cost efficiency, and demo safety.
+
+- Owns: `lib/tools/*`, `app/api/chat/route.ts`, `__tests__/*`
+- Delivers:
+  - Tool fallback quality remains robust under partial failures
+  - Visible cost/latency/API-call indicators for each run
+  - Test coverage for refine loop, grounding contract, and UI-triggered execution paths
+- Demo proof:
+  - Real-time run shows low cost, stable fallback behavior, and no empty/unsafe artifacts
+
+### 72-Hour Hand-off Checklist
+
+- Day 1:
+  - Member 1 ships full-loop refine behavior
+  - Member 2 enforces grounded variant contract
+- Day 2:
+  - Member 3 ships clarification UI + status upgrades
+  - Member 4 adds cost visibility + fallback validation tests
+- Day 3:
+  - Full-team integration + scripted demo rehearsal (Vector Agents + one non-Vector product)
+
+---
+
 ## The Two-Stage Architecture
 
 ### Stage 1: Research (always runs, parallel)

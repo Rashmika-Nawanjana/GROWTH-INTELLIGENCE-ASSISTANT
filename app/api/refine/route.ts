@@ -1,21 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { executionEngineAgent } from '@/lib/agents/execution/execution-engine';
-import type { AgentContext, AgentOutput, ExecutionPlanOutput } from '@/lib/agents/types';
+import { orchestrate } from '@/lib/agents/orchestrator';
+import type {
+  AgentOutput,
+  ConversationMessage,
+  ExecutionPlanOutput,
+  FeedbackAppliedCounts,
+  OrchestratorOutput,
+  RefinementDelta,
+} from '@/lib/agents/types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;
 
-// Refine a prior execution plan using accumulated feedback/outcomes.
+// Refine a prior run using accumulated feedback/outcomes.
 // Flow:
-//   1. Read the prior assistant message (its stored orchestratorOutput gives
-//      us the research findings to pass back in as grounding).
+//   1. Read the prior assistant message and session history.
 //   2. Read all outcomes for the session (recommendation feedback, actions,
 //      variant results).
-//   3. Build a feedbackSummary string and inject it into AgentContext.priorContext.
-//   4. Re-run the Execution Engine.
-//   5. Return the new ExecutionPlanOutput — frontend swaps it into the message.
+//   3. Build a feedbackSummary string and inject it into research context.
+//   4. Re-run FULL orchestration (research + execution), not only Stage 2.
+//   5. Return the refined OrchestratorOutput + execution plan + change deltas.
 //
 // This is the "learning across cycles" proof: each refine improves on
 // the previous, grounded in real numbers the user pasted in.
@@ -26,12 +32,7 @@ interface RefineBody {
   focus?: string;                    // optional "refine around X" steer
 }
 
-interface StoredOrchestratorOutput {
-  query: string;
-  product: string;
-  competitor?: string;
-  outputs: AgentOutput[];
-}
+interface StoredOrchestratorOutput extends OrchestratorOutput {}
 
 async function getSupabase() {
   const cookieStore = await cookies();
@@ -101,6 +102,58 @@ function buildFeedbackSummary(
   return lines.join('\n');
 }
 
+function normalizeFact(fact: string): string {
+  return fact.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function buildRefinementDeltas(previous: AgentOutput[], next: AgentOutput[]): RefinementDelta[] {
+  const previousByDomain = new Map(previous.map(o => [o.domain, o]));
+
+  return next
+    .filter(o => o.artifactType !== 'mind-map')
+    .map((current): RefinementDelta => {
+      const prior = previousByDomain.get(current.domain);
+      if (!prior) {
+        return {
+          domain: current.domain,
+          summary: `New ${current.domain} output added in this refined cycle.`,
+          afterConfidence: current.confidence,
+        };
+      }
+
+      const confidenceShift = current.confidenceScore - prior.confidenceScore;
+      const priorFacts = new Set(prior.facts.map(normalizeFact));
+      const newFacts = current.facts.filter(f => !priorFacts.has(normalizeFact(f)));
+
+      if (Math.abs(confidenceShift) >= 0.08) {
+        const direction = confidenceShift > 0 ? 'increased' : 'decreased';
+        return {
+          domain: current.domain,
+          summary: `${current.domain} confidence ${direction} from ${prior.confidence} to ${current.confidence}.`,
+          beforeConfidence: prior.confidence,
+          afterConfidence: current.confidence,
+        };
+      }
+
+      if (newFacts.length > 0) {
+        return {
+          domain: current.domain,
+          summary: `${current.domain} added new evidence: ${newFacts[0].slice(0, 140)}.`,
+          beforeConfidence: prior.confidence,
+          afterConfidence: current.confidence,
+        };
+      }
+
+      return {
+        domain: current.domain,
+        summary: `${current.domain} direction retained with refreshed validation from latest feedback context.`,
+        beforeConfidence: prior.confidence,
+        afterConfidence: current.confidence,
+      };
+    })
+    .slice(0, 8);
+}
+
 export async function POST(req: NextRequest) {
   let body: RefineBody;
   try {
@@ -122,8 +175,9 @@ export async function POST(req: NextRequest) {
   // 1. Pull the prior assistant message so we have the research outputs
   const { data: msgRow, error: msgErr } = await supabase
     .from('chat_messages')
-    .select('id, content, metadata')
+    .select('id, content, metadata, created_at')
     .eq('id', body.messageId)
+    .eq('session_id', body.sessionId)
     .single();
 
   if (msgErr || !msgRow) {
@@ -136,10 +190,6 @@ export async function POST(req: NextRequest) {
   if (!orchestratorOutput?.outputs?.length) {
     return NextResponse.json({ ok: false, error: 'prior message has no research outputs to refine' }, { status: 400 });
   }
-
-  // Strip the prior execution-plan — we're regenerating it. Keep everything
-  // else as research grounding.
-  const researchOutputs = orchestratorOutput.outputs.filter(o => o.artifactType !== 'execution-plan');
 
   // 2. Pull all session feedback in parallel
   const [feedbackRes, actionsRes, resultsRes] = await Promise.all([
@@ -155,31 +205,76 @@ export async function POST(req: NextRequest) {
     body.focus,
   );
 
-  // 3. Build the refined AgentContext
-  const ctx: AgentContext = {
-    query: body.focus || orchestratorOutput.query,
-    product: orchestratorOutput.product,
-    competitor: orchestratorOutput.competitor,
-    priorContext: feedbackSummary,       // feedback is the most important grounding
-    researchOutputs,
+  const feedbackApplied: FeedbackAppliedCounts = {
+    recommendationFeedback: feedbackRes.data?.length ?? 0,
+    recommendationActions: actionsRes.data?.length ?? 0,
+    variantResults: resultsRes.data?.length ?? 0,
   };
 
-  // 4. Re-run the execution engine
-  let newPlan: ExecutionPlanOutput;
+  // 3. Rebuild history up to the message being refined and re-run full orchestration.
+  const { data: historyRows } = await supabase
+    .from('chat_messages')
+    .select('role, content, created_at')
+    .eq('session_id', body.sessionId)
+    .lte('created_at', msgRow.created_at)
+    .order('created_at', { ascending: true })
+    .limit(80);
+
+  const history: ConversationMessage[] = (historyRows ?? []).map((row: { role: 'user' | 'assistant'; content: string; created_at: string }) => ({
+    role: row.role,
+    content: row.content,
+    timestamp: row.created_at,
+  }));
+
+  const refinedQuery = body.focus || orchestratorOutput.query;
+
+  let refinedOutput: OrchestratorOutput;
   try {
-    newPlan = await executionEngineAgent.run(ctx) as ExecutionPlanOutput;
+    refinedOutput = await orchestrate(
+      refinedQuery,
+      history,
+      undefined,
+      [],
+      undefined,
+      {
+        injectedContext: feedbackSummary,
+        forceExecution: true,
+      },
+    );
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'execution engine error';
+    const msg = err instanceof Error ? err.message : 'refine orchestration error';
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
+
+  const deltas = buildRefinementDeltas(orchestratorOutput.outputs ?? [], refinedOutput.outputs ?? []);
+
+  const deltaLines = deltas.slice(0, 3).map(d => `- ${d.summary}`);
+  const synthesizedAnswer = deltaLines.length > 0
+    ? `${refinedOutput.synthesizedAnswer}\n\nFeedback-driven updates:\n${deltaLines.join('\n')}`
+    : refinedOutput.synthesizedAnswer;
+
+  const enrichedOutput: OrchestratorOutput = {
+    ...refinedOutput,
+    synthesizedAnswer,
+    refinement: {
+      refinedFromMessageId: body.messageId,
+      focus: body.focus,
+      feedbackApplied,
+      deltas,
+      feedbackSummary,
+    },
+  };
+
+  const newPlan = enrichedOutput.outputs.find(o => o.artifactType === 'execution-plan') as ExecutionPlanOutput | undefined;
+  if (!newPlan) {
+    return NextResponse.json({ ok: false, error: 'refined run did not produce an execution plan' }, { status: 500 });
   }
 
   return NextResponse.json({
     ok: true,
     executionPlan: newPlan,
-    feedbackApplied: {
-      recommendationFeedback: feedbackRes.data?.length ?? 0,
-      recommendationActions: actionsRes.data?.length ?? 0,
-      variantResults: resultsRes.data?.length ?? 0,
-    },
+    orchestratorOutput: enrichedOutput,
+    feedbackApplied,
+    changes: deltas,
   });
 }

@@ -15,7 +15,7 @@
 import { useState, useCallback } from 'react';
 import { Mail, Linkedin, Target, BookOpen, Calendar, CheckCircle2, Circle, ArrowRight, Copy, Check, RefreshCw, BarChart3, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/lib/theme-provider';
-import type { ExecutionPlanOutput, CampaignVariant } from '../../lib/agents/types';
+import type { ExecutionPlanOutput, CampaignVariant, OrchestratorOutput, RefinementDelta } from '../../lib/agents/types';
 import { recordVariantResult, refineExecutionPlan } from '@/lib/feedback';
 
 interface Props {
@@ -25,7 +25,7 @@ interface Props {
   // feedback loop. Omit in preview/storybook contexts.
   sessionId?: string | null;
   messageId?: string | null;
-  onRefined?: (plan: ExecutionPlanOutput) => void;
+  onRefined?: (result: { plan: ExecutionPlanOutput; orchestratorOutput?: OrchestratorOutput; changes?: RefinementDelta[] }) => void;
 }
 
 type Tab = 'variants' | 'brief' | 'deployment';
@@ -403,7 +403,11 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
       if (result?.executionPlan) {
         const { recommendationFeedback, recommendationActions, variantResults } = result.feedbackApplied;
         setRefineStatus(`Refined with ${variantResults} results, ${recommendationFeedback} ratings, ${recommendationActions} actions`);
-        onRefined?.(result.executionPlan);
+        onRefined?.({
+          plan: result.executionPlan,
+          orchestratorOutput: result.orchestratorOutput,
+          changes: result.changes,
+        });
       } else {
         setRefineStatus('Refine failed — check logs');
       }
@@ -433,7 +437,7 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
           </span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {/* Refine button — pulls feedback + re-runs the execution engine */}
+          {/* Refine button — pulls feedback + re-runs full orchestration loop */}
           {feedbackEnabled && (
             <button
               type="button"
@@ -441,7 +445,7 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
               disabled={isRefining}
               className="flex items-center gap-1.5 text-[10px] font-mono px-2 py-1 rounded transition-colors disabled:opacity-50"
               style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.3)' }}
-              title="Re-run the execution engine with your feedback and recorded variant outcomes"
+              title="Re-run research + execution with your feedback and recorded variant outcomes"
             >
               <RefreshCw size={10} className={isRefining ? 'animate-spin' : ''} />
               {isRefining ? 'Refining…' : 'Refine with feedback'}

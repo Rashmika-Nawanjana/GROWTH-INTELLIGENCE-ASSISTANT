@@ -11,7 +11,7 @@ import {
   ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
-import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput } from '@/lib/agents/types';
+import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput, RefinementDelta } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
 import { useTheme } from '@/lib/theme-provider';
 import {
@@ -62,7 +62,7 @@ type Message = {
   id: number;
   // Supabase row id of the persisted chat_messages row. Required for the
   // feedback/refine loop: /api/refine needs the authoritative messageId to
-  // look up the prior orchestratorOutput and re-run the Execution Engine.
+  // look up the prior orchestratorOutput and re-run full orchestration.
   persistedId?: string | null;
   role: 'user' | 'assistant';
   type?: 'text' | 'intelligence';
@@ -449,11 +449,16 @@ export default function VeracityDashboard() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  // Swap a refined execution plan back into the latest assistant message.
+  // Swap a refined orchestration result back into the latest assistant message.
   // Used by ArtifactRenderer → ExecutionPlan's "Refine with feedback" flow.
-  // We also persist the updated orchestratorOutput so future page loads see
-  // the refined plan instead of the original.
-  const handleExecutionPlanRefined = useCallback((plan: ExecutionPlanOutput) => {
+  // We persist the updated orchestratorOutput so future page loads see
+  // the latest cycle (including feedback-aware research updates).
+  const handleExecutionPlanRefined = useCallback((result: {
+    plan: ExecutionPlanOutput;
+    orchestratorOutput?: OrchestratorOutput;
+    changes?: RefinementDelta[];
+  }) => {
+    const { plan, orchestratorOutput, changes } = result;
     setMessages(prev => prev.map(m => {
       if (m.role !== 'assistant' || !m.orchestratorOutput) return m;
       // Only the most recent assistant message gets refined.
@@ -464,17 +469,29 @@ export default function VeracityDashboard() {
         .filter(o => o.artifactType !== 'execution-plan')
         .concat(plan);
 
-      const updatedOutput: OrchestratorOutput = {
-        ...m.orchestratorOutput,
-        outputs: updatedOutputs,
-      };
+      const updatedOutput: OrchestratorOutput = orchestratorOutput
+        ? {
+          ...orchestratorOutput,
+          outputs: orchestratorOutput.outputs?.length ? orchestratorOutput.outputs : updatedOutputs,
+        }
+        : {
+          ...m.orchestratorOutput,
+          outputs: updatedOutputs,
+        };
+
+      const deltaLines = (changes ?? []).slice(0, 3).map(d => `- ${d.summary}`);
+      const refinedContent = updatedOutput.synthesizedAnswer || (
+        deltaLines.length
+          ? `${m.content}\n\nFeedback-driven updates:\n${deltaLines.join('\n')}`
+          : m.content
+      );
 
       // Best-effort persistence so a later reload reflects the refinement.
       if (currentSessionId && m.persistedId) {
         // Re-save as a new message row rather than mutating the prior row
         // (we don't have an updateMessage helper and keeping history append-only
         // makes the feedback loop auditable).
-        saveMessage(currentSessionId, 'assistant', m.content, {
+        saveMessage(currentSessionId, 'assistant', refinedContent, {
           type: 'intelligence',
           orchestratorOutput: updatedOutput,
           recommendations: m.recommendations,
@@ -490,7 +507,7 @@ export default function VeracityDashboard() {
         });
       }
 
-      return { ...m, orchestratorOutput: updatedOutput };
+      return { ...m, content: refinedContent, orchestratorOutput: updatedOutput };
     }));
   }, [currentSessionId]);
 

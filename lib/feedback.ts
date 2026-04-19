@@ -3,7 +3,7 @@
 // (failures never block the UI) and every body shape matches the server
 // discriminated union in app/api/feedback/route.ts.
 
-import type { ExecutionPlanOutput } from '@/lib/agents/types';
+import type { ExecutionPlanOutput, FeedbackAppliedCounts, OrchestratorOutput, RefinementDelta } from '@/lib/agents/types';
 
 export type RecommendationRating = 'up' | 'down' | 'neutral';
 export type RecommendationAction = 'accepted' | 'rejected' | 'refined' | 'copied';
@@ -99,7 +99,9 @@ export async function refineExecutionPlan(params: {
   focus?: string;
 }): Promise<{
   executionPlan: ExecutionPlanOutput;
-  feedbackApplied: { recommendationFeedback: number; recommendationActions: number; variantResults: number };
+  orchestratorOutput?: OrchestratorOutput;
+  feedbackApplied: FeedbackAppliedCounts;
+  changes?: RefinementDelta[];
 } | null> {
   try {
     const res = await fetch('/api/refine', {
@@ -112,7 +114,9 @@ export async function refineExecutionPlan(params: {
     if (!json?.ok) return null;
     return {
       executionPlan: json.executionPlan as ExecutionPlanOutput,
-      feedbackApplied: json.feedbackApplied,
+      orchestratorOutput: json.orchestratorOutput as OrchestratorOutput | undefined,
+      feedbackApplied: json.feedbackApplied as FeedbackAppliedCounts,
+      changes: json.changes as RefinementDelta[] | undefined,
     };
   } catch {
     return null;
