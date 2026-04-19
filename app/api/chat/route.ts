@@ -49,7 +49,14 @@ export async function POST(req: NextRequest) {
     return jsonError('Not authenticated', 401);
   }
 
-  let body: { query: string; history: ConversationMessage[]; images?: ImageAttachment[]; memoryContext?: string; includeMirofish?: boolean };
+  let body: {
+    query: string;
+    history: ConversationMessage[];
+    images?: ImageAttachment[];
+    memoryContext?: string;
+    includeMirofish?: boolean;
+    followUpMode?: 'full' | 'targeted';
+  };
 
   try {
     body = await req.json();
@@ -57,7 +64,7 @@ export async function POST(req: NextRequest) {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const { query, history = [], images = [], memoryContext, includeMirofish = false } = body;
+  const { query, history = [], images = [], memoryContext, includeMirofish = false, followUpMode = 'full' } = body;
 
   if (!query?.trim()) {
     return jsonError('query is required', 400);
@@ -118,6 +125,7 @@ export async function POST(req: NextRequest) {
         },
         images,
         memoryContext,
+        { followUpMode },
       );
       // Send main result — frontend renders immediately, no need to wait for MiroFish
       write({ type: 'result', output: result });

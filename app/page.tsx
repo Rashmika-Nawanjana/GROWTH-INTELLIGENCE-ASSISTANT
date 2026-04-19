@@ -736,11 +736,16 @@ export default function VeracityDashboard() {
       : '';
     const userMemoryContext = userMemory ? buildMemoryContext(userMemory) : '';
     const memoryContext = [userMemoryContext, recalledContext].filter(Boolean).join('\n\n');
+    const lowerFollowUp = text.toLowerCase();
+    const followUpMode: 'full' | 'targeted' =
+      (lowerFollowUp.includes('full rerun') || lowerFollowUp.includes('full refresh'))
+        ? 'full'
+        : 'targeted';
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, history, memoryContext }),
+        body: JSON.stringify({ query: text, history, memoryContext, followUpMode }),
       });
       if (!res.ok || !res.body) throw new Error();
 

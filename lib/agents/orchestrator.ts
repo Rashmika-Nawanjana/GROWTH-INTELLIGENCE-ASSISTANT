@@ -66,6 +66,7 @@ interface ClassificationResult {
 interface OrchestrateOptions {
   injectedContext?: string; // extra context injected into agents and synthesizer (e.g. feedback loop)
   forceExecution?: boolean; // force stage-2 execution even when classifier says false
+  followUpMode?: 'full' | 'targeted'; // targeted runs only classifier-selected research domains
 }
 
 async function classifyQuery(
@@ -402,8 +403,13 @@ export async function orchestrate(
     memoryContext: memoryContext || undefined,
   };
 
-  // Step 2: Always run all 6 agents for full intelligence coverage
-  const agentsToRun = ALL_AGENTS;
+  // Step 2: Select research agents.
+  // Main queries default to full sweep; follow-ups may run targeted domains.
+  const classifiedDomains = new Set(classification.domains ?? []);
+  const targetedAgents = ALL_AGENTS.filter(agent => classifiedDomains.has(agent.id as IntelligenceDomain));
+  const agentsToRun = options?.followUpMode === 'targeted'
+    ? (targetedAgents.length > 0 ? targetedAgents : ALL_AGENTS)
+    : ALL_AGENTS;
 
   // Initialise agent run tracking
   const agentRuns: AgentRun[] = agentsToRun.map(a => ({
