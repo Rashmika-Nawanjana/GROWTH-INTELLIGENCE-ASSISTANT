@@ -7,11 +7,11 @@ import {
   LogOut, User, Layers, X, History, GitBranch,
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
-  Activity, Zap, Shield, Sun, Moon, Rocket,
+  Activity, Zap, Shield, Sun, Moon, Rocket, Fish,
   ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
-import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput } from '@/lib/agents/types';
+import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
 import { useTheme } from '@/lib/theme';
 import {
@@ -90,7 +90,7 @@ const DEMO_QUERIES = [
   'What should Vector Agents build to capture emerging demand?',
 ];
 
-const ALL_DOMAINS = ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent', 'execution-engine'] as const;
+const ALL_DOMAINS = ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent', 'execution-engine', 'mirofish'] as const;
 type Domain = typeof ALL_DOMAINS[number];
 
 const DOMAIN_META: Record<Domain, {
@@ -135,6 +135,11 @@ const DOMAIN_META: Record<Domain, {
     label: 'Execution Engine',          short: 'Execution',
     icon: <Rocket size={14} />,
     color: '#0070f3', bg: 'rgba(0,112,243,0.08)', bgLight: 'rgba(0,112,243,0.06)', border: 'rgba(0,112,243,0.3)',
+  },
+  'mirofish': {
+    label: 'MiroFish (Forecast)',        short: 'MiroFish',
+    icon: <Fish size={14} />,
+    color: '#06b6d4', bg: 'rgba(6,182,212,0.08)', bgLight: 'rgba(6,182,212,0.06)', border: 'rgba(6,182,212,0.3)',
   },
 };
 
@@ -356,6 +361,8 @@ export default function VeracityDashboard() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [userMemory, setUserMemory] = useState<UserMemory | null>(null);
+  const [mirofishEnabled, setMirofishEnabled] = useState(true);
+  const [mirofishRunning, setMirofishRunning] = useState(false);
 
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const followUpEndRef = useRef<HTMLDivElement>(null);
@@ -522,7 +529,7 @@ export default function VeracityDashboard() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: effectiveText, history, images: imagePayloads, memoryContext }),
+        body: JSON.stringify({ query: effectiveText, history, images: imagePayloads, memoryContext, includeMirofish: mirofishEnabled }),
       });
       if (!res.ok || !res.body) throw new Error(`API error ${res.status}`);
 
@@ -558,6 +565,19 @@ export default function VeracityDashboard() {
             if (chunk.type === 'result') {
               const out: OrchestratorOutput = chunk.output;
               finalOutput = out;
+              // If mirofish was requested, mark it as running so the sidebar shows it
+              if (mirofishEnabled) {
+                setMirofishRunning(true);
+                setMessages(prev => prev.map(m =>
+                  m.id !== assistantId ? m : {
+                    ...m,
+                    agentRuns: [
+                      ...(m.agentRuns ?? []).filter(r => r.agentId !== 'mirofish'),
+                      { agentId: 'mirofish', name: 'MiroFish (Forecast)', status: 'running', startedAt: new Date().toISOString() } as AgentRun,
+                    ],
+                  }
+                ));
+              }
               setMessages(prev => prev.map(m =>
                 m.id === assistantId ? {
                   ...m,
@@ -578,6 +598,26 @@ export default function VeracityDashboard() {
               ));
             }
 
+            if (chunk.type === 'mirofish_result') {
+              const mirofishOut: AgentOutput = chunk.output;
+              setMirofishRunning(false);
+              setMessages(prev => prev.map(m => {
+                if (m.id !== assistantId || !m.orchestratorOutput) return m;
+                const updatedOutputs = [
+                  ...(m.orchestratorOutput.outputs ?? []).filter(o => o.domain !== 'mirofish'),
+                  mirofishOut,
+                ];
+                return {
+                  ...m,
+                  orchestratorOutput: { ...m.orchestratorOutput, outputs: updatedOutputs },
+                  agentRuns: [
+                    ...(m.agentRuns ?? []).filter(r => r.agentId !== 'mirofish'),
+                    { agentId: 'mirofish', name: 'MiroFish (Forecast)', status: 'completed', confidence: mirofishOut.confidence } as AgentRun,
+                  ],
+                };
+              }));
+            }
+
             if (chunk.type === 'error') {
               setMessages(prev => prev.map(m =>
                 m.id === assistantId ? { ...m, content: `Analysis failed: ${chunk.message}`, type: 'text' } : m
@@ -592,6 +632,7 @@ export default function VeracityDashboard() {
       ));
     } finally {
       setIsLoading(false);
+      setMirofishRunning(false);
     }
 
     let sessionId = currentSessionId;
@@ -917,42 +958,66 @@ export default function VeracityDashboard() {
               </div>
             )}
 
-            <div className="relative flex items-center rounded-lg transition-all"
-              style={{ border: `1px solid ${borderC}`, background: inputBg }}
-              onFocus={() => {}} >
-              <Search size={13} className="absolute left-3.5 pointer-events-none" style={{ color: textSubtle }} />
-              <input
-                type="text"
-                value={inputValue}
-                onChange={e => setInputValue(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSend(inputValue)}
-                placeholder="Ask a growth intelligence question…"
-                className="w-full h-10 pl-9 pr-[88px] text-[14px] bg-transparent outline-none"
-                style={{ color: textMain }}
+            <div className="flex items-center gap-2">
+              {/* MiroFish toggle */}
+              <button
+                onClick={() => setMirofishEnabled(v => !v)}
                 disabled={isLoading}
-              />
-              <div className="absolute right-2 flex items-center gap-1">
-                <button onClick={() => fileInputRef.current?.click()}
-                  className="w-7 h-7 flex items-center justify-center rounded-md transition-colors"
-                  style={{ color: textSubtle }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = textMain; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = textSubtle; }}>
-                  <Paperclip size={13} />
-                </button>
-                <button
-                  onClick={() => handleSend(inputValue)}
-                  disabled={(!inputValue.trim() && attachedImages.length === 0) || isLoading}
-                  className="flex items-center justify-center w-7 h-7 rounded-md text-[13px] font-medium transition-all disabled:opacity-40"
-                  style={{ background: '#0070f3', color: '#fff' }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0060df'; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0070f3'; }}
-                >
+                title={mirofishEnabled ? 'MiroFish Forecast ON — swarm simulation will run after main results (takes extra time)' : 'Enable MiroFish Forecast — runs swarm-simulation probabilistic forecast after main results'}
+                className="shrink-0 flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11px] font-mono font-medium border transition-all disabled:opacity-40 select-none"
+                style={mirofishEnabled ? {
+                  background: 'rgba(6,182,212,0.12)',
+                  color: '#06b6d4',
+                  borderColor: 'rgba(6,182,212,0.4)',
+                } : {
+                  background: 'transparent',
+                  color: textSubtle,
+                  borderColor: borderC,
+                }}
+              >
+                {mirofishRunning
+                  ? <RefreshCw size={11} className="animate-spin" />
+                  : <Fish size={11} />}
+                <span>{mirofishRunning ? 'forecasting…' : 'MiroFish'}</span>
+              </button>
+
+              <div className="relative flex-1 flex items-center rounded-lg transition-all"
+                style={{ border: `1px solid ${borderC}`, background: inputBg }}
+                onFocus={() => {}} >
+                <Search size={13} className="absolute left-3.5 pointer-events-none" style={{ color: textSubtle }} />
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={e => setInputValue(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleSend(inputValue)}
+                  placeholder="Ask a growth intelligence question…"
+                  className="w-full h-10 pl-9 pr-[88px] text-[14px] bg-transparent outline-none"
+                  style={{ color: textMain }}
+                  disabled={isLoading}
+                />
+                <div className="absolute right-2 flex items-center gap-1">
+                  <button onClick={() => fileInputRef.current?.click()}
+                    className="w-7 h-7 flex items-center justify-center rounded-md transition-colors"
+                    style={{ color: textSubtle }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = textMain; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = textSubtle; }}>
+                    <Paperclip size={13} />
+                  </button>
+                  <button
+                    onClick={() => handleSend(inputValue)}
+                    disabled={(!inputValue.trim() && attachedImages.length === 0) || isLoading}
+                    className="flex items-center justify-center w-7 h-7 rounded-md text-[13px] font-medium transition-all disabled:opacity-40"
+                    style={{ background: '#0070f3', color: '#fff' }}
+                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0060df'; }}
+                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0070f3'; }}
+                  >
                   {isLoading
                     ? <RefreshCw size={13} className="animate-spin" />
                     : <Send size={13} />}
-                </button>
+                  </button>
+                </div>
+                <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
               </div>
-              <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
             </div>
           </div>
 

@@ -3,7 +3,7 @@ export interface AgentSource {
   url: string;
   title: string;
   timestamp: string;
-  tool: 'serpapi' | 'firecrawl' | 'reddit' | 'hn' | 'synthesis';
+  tool: 'serpapi' | 'firecrawl' | 'reddit' | 'hn' | 'synthesis' | 'mirofish';
 }
 
 // ─── Confidence ───────────────────────────────────────────────────────────────
@@ -49,7 +49,8 @@ export type IntelligenceDomain =
   | 'pricing'
   | 'positioning'
   | 'adjacent'
-  | 'execution-engine';
+  | 'execution-engine'
+  | 'mirofish';
 
 // ─── Artifact types (drives which component renders) ─────────────────────────
 export type ArtifactType =
@@ -61,7 +62,8 @@ export type ArtifactType =
   | 'threat-heatmap'
   | 'mind-map'
   | 'scorecard'
-  | 'execution-plan';
+  | 'execution-plan'
+  | 'forecast-chart';
 
 // ─── Domain-specific output shapes ───────────────────────────────────────────
 
@@ -210,6 +212,34 @@ export interface Recommendation {
   evidence: string[];
   confidence: ConfidenceLevel;
   priority: 'immediate' | 'short-term' | 'strategic';
+}
+
+// ─── MiroFish Forecast output (Member 3 — Swarm-Simulation Agent) ────────────
+
+export interface ForecastSignal {
+  persona: string;        // e.g. "skeptical VP of Engineering"
+  weight: number;         // -1 to +1 (positive = supports the forecast direction)
+  excerpt?: string;       // short representative quote from the swarm response
+}
+
+export interface DistributionBucket {
+  label: string;          // e.g. "strongly positive"
+  count: number;          // number of simulated personas in this bucket
+}
+
+export interface ForecastOutput extends AgentOutput {
+  artifactType: 'forecast-chart';
+  question: string;                     // LLM-rewritten forecast question from user query
+  pointEstimate: number;                // 0-1 probability
+  unit: 'probability' | 'value' | 'percent';
+  confidenceLow: number;                // lower bound of 90% CI
+  confidenceHigh: number;               // upper bound of 90% CI
+  direction: 'up' | 'down' | 'flat';   // headline direction of the predicted outcome
+  swarmSize: number;                    // number of simulated personas polled
+  timeHorizon: string;                  // e.g. "6 months", "Q3 2026"
+  distribution: DistributionBucket[];   // sentiment distribution across the swarm
+  contributingSignals: ForecastSignal[]; // top 3-5 personas + influence weight
+  rationale: string;                    // 2-3 sentence plain-English forecast summary
 }
 
 // ─── Image attachment ────────────────────────────────────────────────────────

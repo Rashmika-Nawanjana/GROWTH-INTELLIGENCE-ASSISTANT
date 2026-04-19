@@ -6,6 +6,7 @@ import { pricingAgent } from './pricing';
 import { positioningAgent } from './positioning';
 import { adjacentAgent } from './adjacent';
 import { executionEngineAgent } from './execution/execution-engine';
+import { mirofishAgent } from './mirofish';
 import { detectExecutionIntent } from './execution-intent';
 import type {
   AgentConfig,
@@ -39,7 +40,7 @@ const EST_COST_PER_GEMINI_CALL =
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-// ── All registered domain agents ─────────────────────────────────────────────
+// ── All registered domain agents (6 fast Stage-1 agents) ────────────────────
 const ALL_AGENTS: AgentConfig[] = [
   marketTrendsAgent,
   competitiveAgent,
@@ -48,6 +49,8 @@ const ALL_AGENTS: AgentConfig[] = [
   positioningAgent,
   adjacentAgent,
 ];
+// mirofishAgent is opt-in and runs separately after the main result is sent
+// (see runMirofishAgent below)
 
 // ── Query classifier ──────────────────────────────────────────────────────────
 interface ClassificationResult {
@@ -508,4 +511,48 @@ export async function orchestrate(
     generatedAt: new Date().toISOString(),
     metrics,
   };
+}
+
+// ── Optional MiroFish agent — runs independently after main result ────────────
+// Called by the route handler only when the user has toggled "MiroFish Forecast".
+// This keeps orchestrate() fast (6 agents) while MiroFish completes in the
+// background with the stream still open.
+export async function runMirofishAgent(
+  query: string,
+  history: ConversationMessage[],
+  onAgentUpdate?: (run: AgentRun) => void,
+  images: ImageAttachment[] = [],
+  memoryContext?: string,
+): Promise<AgentOutput | null> {
+  // Re-classify so mirofish has the same product context as the main run
+  const classification = await classifyQuery(query, history, images, memoryContext);
+  const { product, competitor, productUrl, competitorUrl, intent } = classification;
+
+  const priorContext = history
+    .slice(-4)
+    .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content.slice(0, 400)}`)
+    .join('\n');
+
+  const agentContext: AgentContext = {
+    query: intent,
+    product,
+    competitor,
+    productUrl,
+    competitorUrl,
+    priorContext: priorContext || undefined,
+    images: images.length > 0 ? images : undefined,
+    memoryContext: memoryContext || undefined,
+  };
+
+  const run: AgentRun = { agentId: mirofishAgent.id, name: mirofishAgent.name, status: 'running', startedAt: new Date().toISOString() };
+  onAgentUpdate?.(run);
+
+  try {
+    const output = await mirofishAgent.run(agentContext);
+    onAgentUpdate?.({ ...run, status: 'completed', completedAt: new Date().toISOString() });
+    return output;
+  } catch (err) {
+    onAgentUpdate?.({ ...run, status: 'failed', completedAt: new Date().toISOString(), error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
 }

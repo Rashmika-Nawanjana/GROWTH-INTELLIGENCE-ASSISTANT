@@ -43,7 +43,9 @@ export async function POST(req: NextRequest) {
 
   const embedding = await embedText(content);
   if (!embedding) {
-    return NextResponse.json({ error: 'Embedding failed' }, { status: 500 });
+    // Embedding model unavailable (quota, region, or key scope) — skip indexing silently.
+    // The chat system works without semantic recall; embeddings are a background enhancement only.
+    return NextResponse.json({ ok: true, skipped: true });
   }
 
   const { error } = await supabase.from('chat_embeddings').insert({

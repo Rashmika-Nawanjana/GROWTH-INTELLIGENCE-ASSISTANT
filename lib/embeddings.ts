@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+// text-embedding-004 is only available on the stable v1 API, not v1beta
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY!, httpOptions: { apiVersion: 'v1' } });
 
 // Gemini text-embedding-004 → 768 dimensions
 export async function embedText(text: string): Promise<number[] | null> {

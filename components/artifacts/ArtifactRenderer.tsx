@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import type { AgentOutput, MarketTrendsOutput, CompetitiveOutput, WinLossOutput, PricingOutput, PositioningOutput, AdjacentOutput, MindMapOutput, ExecutionPlanOutput } from '@/lib/agents/types';
+import type { AgentOutput, MarketTrendsOutput, CompetitiveOutput, WinLossOutput, PricingOutput, PositioningOutput, AdjacentOutput, MindMapOutput, ExecutionPlanOutput, ForecastOutput } from '@/lib/agents/types';
 import { TrendChart } from './TrendChart';
 import { CompetitiveMatrix } from './CompetitiveMatrix';
 import { WinLossScorecard } from './WinLossScorecard';
@@ -10,6 +10,7 @@ import { PositioningGap } from './PositioningGap';
 import { ThreatHeatmap } from './ThreatHeatmap';
 import { MindMap } from './MindMap';
 import { ExecutionPlan } from './ExecutionPlan';
+import { ForecastChart } from './ForecastChart';
 import { EmptyArtifact } from './EmptyArtifact';
 
 interface Props {
@@ -94,6 +95,14 @@ export function ArtifactRenderer({ output, product, sessionId, messageId, onRefi
         return <EmptyArtifact label="Execution Plan" reason="Execution Engine returned no variants or brief." />;
       }
       return <ExecutionPlan output={o} product={product} sessionId={sessionId} messageId={messageId} onRefined={onRefined} />;
+    }
+    case 'forecast-chart': {
+      const o = output as ForecastOutput;
+      // Empty-state guard — hide card when swarm is unavailable
+      if (!o.question || !o.swarmSize) {
+        return <EmptyArtifact label="Swarm Forecast" reason="MiroFish simulation unavailable or not yet bootstrapped for this product." />;
+      }
+      return <ForecastChart output={o} product={product} />;
     }
     default:
       return <EmptyArtifact label="Artifact" reason="Unknown artifact type." />;

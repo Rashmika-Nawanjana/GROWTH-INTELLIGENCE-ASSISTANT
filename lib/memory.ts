@@ -39,7 +39,7 @@ export async function getUserMemory(): Promise<UserMemory> {
     .from('user_memory')
     .select('*')
     .eq('user_id', user.id)
-    .single();
+    .maybeSingle();
 
   if (error || !data) return EMPTY_MEMORY;
 

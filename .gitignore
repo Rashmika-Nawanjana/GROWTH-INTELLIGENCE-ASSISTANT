@@ -33,3 +33,9 @@ Thumbs.db
 
 # Turbo
 .turbo/
+
+# MiroFish service
+mirofish-service/.venv/
+mirofish-service/data/
+mirofish-service/__pycache__/
+mirofish-service/**/__pycache__/

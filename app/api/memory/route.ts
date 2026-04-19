@@ -43,9 +43,13 @@ export async function POST(req: NextRequest) {
         cookies: {
           getAll: () => cookieStore.getAll(),
           setAll: (cookiesToSet) => {
-            cookiesToSet.forEach(({ name, value, options }) => {
-              cookieStore.set(name, value, options);
-            });
+            try {
+              cookiesToSet.forEach(({ name, value, options }) => {
+                cookieStore.set(name, value, options);
+              });
+            } catch {
+              // Called from a context where cookies can't be mutated — safe to ignore
+            }
           },
         },
       }
@@ -124,6 +128,12 @@ Return JSON:
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    // Rate limit (429) or quota exhausted — memory extraction is non-critical,
+    // return 200 so the client doesn't show an error in DevTools.
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('429') || msg.toLowerCase().includes('resource_exhausted') || msg.toLowerCase().includes('rate')) {
+      return NextResponse.json({ ok: true, skipped: 'rate_limited' });
+    }
     console.error('memory route error:', err);
     return NextResponse.json({ ok: false }, { status: 500 });
   }

@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
-import { orchestrate } from '../../../lib/agents/orchestrator';
+import { orchestrate, runMirofishAgent } from '../../../lib/agents/orchestrator';
 import { createClient } from '@/lib/supabase-server';
-import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment } from '../../../lib/agents/types';
+import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment, AgentOutput } from '../../../lib/agents/types';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120; // 2 min budget for parallel agents
@@ -19,6 +19,7 @@ interface LiveMetrics {
 type StreamChunk =
   | { type: 'agent_update'; run: AgentRun; metrics: LiveMetrics }
   | { type: 'result'; output: OrchestratorOutput }
+  | { type: 'mirofish_result'; output: AgentOutput }
   | { type: 'error'; message: string };
 
 // Mirror of orchestrator cost model — kept cheap and only used for the
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
     return jsonError('Not authenticated', 401);
   }
 
-  let body: { query: string; history: ConversationMessage[]; images?: ImageAttachment[]; memoryContext?: string };
+  let body: { query: string; history: ConversationMessage[]; images?: ImageAttachment[]; memoryContext?: string; includeMirofish?: boolean };
 
   try {
     body = await req.json();
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const { query, history = [], images = [], memoryContext } = body;
+  const { query, history = [], images = [], memoryContext, includeMirofish = false } = body;
 
   if (!query?.trim()) {
     return jsonError('query is required', 400);
@@ -107,6 +108,7 @@ export async function POST(req: NextRequest) {
   // Run orchestration in background, stream updates to frontend
   (async () => {
     try {
+      // ── Stage 1+2: 6 research agents (+ execution engine if needed) ────────
       const result = await orchestrate(
         query,
         history,
@@ -117,7 +119,29 @@ export async function POST(req: NextRequest) {
         images,
         memoryContext,
       );
+      // Send main result — frontend renders immediately, no need to wait for MiroFish
       write({ type: 'result', output: result });
+
+      // ── MiroFish (opt-in): runs AFTER main result has been streamed ────────
+      if (includeMirofish) {
+        try {
+          const mirofishOutput = await runMirofishAgent(
+            query,
+            history,
+            (agentRun: AgentRun) => {
+              liveAgentState.set(agentRun.agentId, agentRun.status);
+              write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
+            },
+            images,
+            memoryContext,
+          );
+          if (mirofishOutput) {
+            write({ type: 'mirofish_result', output: mirofishOutput });
+          }
+        } catch {
+          // MiroFish failure is non-fatal — main result already delivered
+        }
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
       write({ type: 'error', message });
