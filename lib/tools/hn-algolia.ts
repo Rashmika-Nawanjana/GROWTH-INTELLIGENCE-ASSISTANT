@@ -1,5 +1,6 @@
 import { getCached, setCache } from '../supabase';
 import type { ToolResult, HNPost } from './types';
+import { buildToolResult } from './fallback';
 
 // HN Algolia API — no key required
 const BASE_URL = 'https://hn.algolia.com/api/v1';
@@ -21,13 +22,12 @@ export async function searchHN(query: string, type: 'story' | 'comment' = 'story
 
   const res = await fetch(url.toString());
   if (!res.ok) {
-    return {
+    return buildToolResult<HNPost[]>({
       data: [],
-      source: 'Hacker News',
-      timestamp: new Date().toISOString(),
-      confidence: 0,
-      cached: false,
-    };
+      status: 'failed',
+      source: 'Hacker News (failed)',
+      sourceUrl: url.toString(),
+    });
   }
 
   const raw = await res.json() as any;
@@ -42,14 +42,12 @@ export async function searchHN(query: string, type: 'story' | 'comment' = 'story
       commentCount: h.num_comments ?? 0,
     }));
 
-  const result: ToolResult<HNPost[]> = {
+  const result = buildToolResult<HNPost[]>({
     data: posts,
+    status: posts.length > 0 ? 'ok' : 'failed',
     source: 'Hacker News (Algolia)',
     sourceUrl: `https://hn.algolia.com/?query=${encodeURIComponent(query)}`,
-    timestamp: new Date().toISOString(),
-    confidence: 0.8,
-    cached: false,
-  };
+  });
 
   await setCache('hn', cacheKey, result);
   return result;

@@ -6,12 +6,15 @@ import { pricingAgent } from './pricing';
 import { positioningAgent } from './positioning';
 import { adjacentAgent } from './adjacent';
 import { executionEngineAgent } from './execution/execution-engine';
+import { mirofishAgent } from './mirofish';
+import { detectExecutionIntent } from './execution-intent';
 import type {
   AgentConfig,
   AgentContext,
   AgentOutput,
   AgentRun,
   OrchestratorOutput,
+  RunMetrics,
   Recommendation,
   ConversationMessage,
   ConfidenceLevel,
@@ -22,9 +25,22 @@ import type {
 } from './types';
 import { scoreToLevel } from './types';
 
+// ── Cost estimation constants ───────────────────────────────────────────────
+// Gemini 2.0 Flash pricing (per 1M tokens, as of 2025-01):
+//   Input:  $0.10 / 1M tokens
+//   Output: $0.40 / 1M tokens
+// We estimate ~2K input + ~1K output tokens per Gemini call.
+const EST_INPUT_TOKENS_PER_CALL = 2000;
+const EST_OUTPUT_TOKENS_PER_CALL = 1000;
+const COST_PER_INPUT_TOKEN = 0.10 / 1_000_000;
+const COST_PER_OUTPUT_TOKEN = 0.40 / 1_000_000;
+const EST_COST_PER_GEMINI_CALL =
+  EST_INPUT_TOKENS_PER_CALL * COST_PER_INPUT_TOKEN +
+  EST_OUTPUT_TOKENS_PER_CALL * COST_PER_OUTPUT_TOKEN;
+
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
-// ── All registered domain agents ─────────────────────────────────────────────
+// ── All registered domain agents (6 fast Stage-1 agents) ────────────────────
 const ALL_AGENTS: AgentConfig[] = [
   marketTrendsAgent,
   competitiveAgent,
@@ -33,6 +49,8 @@ const ALL_AGENTS: AgentConfig[] = [
   positioningAgent,
   adjacentAgent,
 ];
+// mirofishAgent is opt-in and runs separately after the main result is sent
+// (see runMirofishAgent below)
 
 // ── Query classifier ──────────────────────────────────────────────────────────
 interface ClassificationResult {
@@ -43,31 +61,6 @@ interface ClassificationResult {
   domains: IntelligenceDomain[];
   intent: string;
   runExecution: boolean;  // true when query is execution-intent (write copy, outreach, variants, brief)
-}
-
-// Deterministic execution-intent detector. Runs alongside the LLM classifier
-// so we never miss obvious "write copy / draft outreach / generate variants"
-// queries. If either signal fires, the Execution Engine kicks in.
-//
-// The patterns are intentionally biased toward generation verbs combined
-// with marketing/outreach artifacts — they should not fire on pure research
-// questions like "compare X vs Y" or "what is the market for X".
-const EXECUTION_INTENT_PATTERNS: RegExp[] = [
-  // verb + artifact ("write a cold email", "draft an outreach sequence")
-  /\b(write|draft|create|generate|produce|craft|compose|build|make|give\s+me|send\s+me|show\s+me)\b[^.?!]*\b(cold\s*email|email|linkedin|outreach|sequence|message|messages|copy|post|posts|caption|captions|brief|one[-\s]?pager|pitch|landing\s*page|ad|ads|campaign|cta|hook|headline|tagline|script|dm|outbound|nurture)\b/i,
-  // explicit framings
-  /\b(campaign\s*brief|positioning\s*guide|strategy\s*doc|messaging\s*guide|launch\s*plan|go[-\s]?to[-\s]?market\s*plan|gtm\s*plan)\b/i,
-  // A/B testing language
-  /\b(a\/b|a\s*b\s*test|ab\s*test|variants?|test\s*angles?|message\s*variants?|message\s*test|hypotheses?|falsifiable)\b/i,
-  // ship / launch / deploy verbs paired with marketing artifact
-  /\b(ship|launch|deploy|roll\s*out)\b[^.?!]*\b(campaign|outreach|email|sequence|copy|message|post|ad)\b/i,
-  // bare imperatives that almost always mean "generate something"
-  /^\s*(write|draft|generate|create|compose)\s+/i,
-];
-
-function detectExecutionIntent(query: string): boolean {
-  if (!query?.trim()) return false;
-  return EXECUTION_INTENT_PATTERNS.some(re => re.test(query));
 }
 
 async function classifyQuery(
@@ -369,9 +362,11 @@ export async function orchestrate(
   images: ImageAttachment[] = [],
   memoryContext?: string,
 ): Promise<OrchestratorOutput> {
+  const orchestrationStart = Date.now();
 
-  // Step 1: Classify query and extract context
+  // Step 1: Classify query and extract context  (1 Gemini call)
   const classification = await classifyQuery(query, history, images, memoryContext);
+  let geminiCallCount = 1;
 
   const { product, competitor, productUrl, competitorUrl, intent, runExecution } = classification;
 
@@ -403,17 +398,21 @@ export async function orchestrate(
   }));
 
   // Step 3: Fan-out — all selected agents run in parallel
+  const agentLatencies: Record<string, number> = {};
   const agentPromises = agentsToRun.map(async (agent, i): Promise<AgentOutput | null> => {
     // Mark as running
+    const agentStart = Date.now();
     agentRuns[i] = { ...agentRuns[i], status: 'running', startedAt: new Date().toISOString() };
     onAgentUpdate?.(agentRuns[i]);
 
     try {
       const output = await agent.run(agentContext);
+      agentLatencies[agent.id] = Date.now() - agentStart;
       agentRuns[i] = { ...agentRuns[i], status: 'completed', completedAt: new Date().toISOString() };
       onAgentUpdate?.(agentRuns[i]);
       return output;
     } catch (err) {
+      agentLatencies[agent.id] = Date.now() - agentStart;
       const error = err instanceof Error ? err.message : String(err);
       agentRuns[i] = { ...agentRuns[i], status: 'failed', completedAt: new Date().toISOString(), error };
       onAgentUpdate?.(agentRuns[i]);
@@ -428,8 +427,12 @@ export async function orchestrate(
     )
     .map(r => r.value as AgentOutput);
 
+  // Each research agent makes ~1 Gemini call
+  geminiCallCount += agentsToRun.length;
+
   // ── Stage 2: Execution Engine (only if execution intent detected) ──────────
   if (runExecution) {
+    const execStart = Date.now();
     const execRun: AgentRun = {
       agentId: 'execution-engine',
       name: 'Execution Engine',
@@ -444,21 +447,25 @@ export async function orchestrate(
         ...agentContext,
         researchOutputs: outputs,   // pass stage-1 findings as grounding
       });
+      agentLatencies['execution-engine'] = Date.now() - execStart;
       execRun.status = 'completed';
       execRun.completedAt = new Date().toISOString();
       outputs.push(executionOutput);
+      geminiCallCount += 3; // 3 sub-agents
     } catch (err) {
+      agentLatencies['execution-engine'] = Date.now() - execStart;
       execRun.status = 'failed';
       execRun.error = err instanceof Error ? err.message : String(err);
     }
     onAgentUpdate?.(execRun);
   }
 
-  // Step 4: Synthesise + generate mind map in parallel
+  // Step 4: Synthesise + generate mind map in parallel (2 Gemini calls)
   const [synthesisResult, mindMapResult] = await Promise.all([
     synthesize(query, outputs, history, images, memoryContext),
     generateMindMap(query, product, outputs),
   ]);
+  geminiCallCount += 2; // synthesis + mind map
   const { answer, recommendations, followUps } = synthesisResult;
 
   // Append mind map to outputs if generated successfully
@@ -472,6 +479,25 @@ export async function orchestrate(
     : 0.5;
   const totalConfidence: ConfidenceLevel = scoreToLevel(avgConfidence);
 
+  // Step 6: Build run metrics
+  // Tool call count: each successful agent typically makes 2-4 tool calls.
+  // We estimate based on completed agents (a rough heuristic — agents don't
+  // currently report exact tool call counts back).
+  const completedAgents = agentRuns.filter(r => r.status === 'completed').length;
+  const failedAgents = agentRuns.filter(r => r.status === 'failed').length;
+  const toolCallCount = completedAgents * 3; // conservative average
+
+  const metrics: RunMetrics = {
+    totalLatencyMs: Date.now() - orchestrationStart,
+    agentLatencies,
+    estimatedCostUsd: Number.parseFloat((geminiCallCount * EST_COST_PER_GEMINI_CALL).toFixed(5)),
+    toolCallCount,
+    geminiCallCount,
+    agentCount: agentRuns.length,
+    completedAgentCount: completedAgents,
+    failedAgentCount: failedAgents,
+  };
+
   return {
     query,
     product,
@@ -483,5 +509,50 @@ export async function orchestrate(
     suggestedFollowUps: followUps,
     totalConfidence,
     generatedAt: new Date().toISOString(),
+    metrics,
   };
+}
+
+// ── Optional MiroFish agent — runs independently after main result ────────────
+// Called by the route handler only when the user has toggled "MiroFish Forecast".
+// This keeps orchestrate() fast (6 agents) while MiroFish completes in the
+// background with the stream still open.
+export async function runMirofishAgent(
+  query: string,
+  history: ConversationMessage[],
+  onAgentUpdate?: (run: AgentRun) => void,
+  images: ImageAttachment[] = [],
+  memoryContext?: string,
+): Promise<AgentOutput | null> {
+  // Re-classify so mirofish has the same product context as the main run
+  const classification = await classifyQuery(query, history, images, memoryContext);
+  const { product, competitor, productUrl, competitorUrl, intent } = classification;
+
+  const priorContext = history
+    .slice(-4)
+    .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content.slice(0, 400)}`)
+    .join('\n');
+
+  const agentContext: AgentContext = {
+    query: intent,
+    product,
+    competitor,
+    productUrl,
+    competitorUrl,
+    priorContext: priorContext || undefined,
+    images: images.length > 0 ? images : undefined,
+    memoryContext: memoryContext || undefined,
+  };
+
+  const run: AgentRun = { agentId: mirofishAgent.id, name: mirofishAgent.name, status: 'running', startedAt: new Date().toISOString() };
+  onAgentUpdate?.(run);
+
+  try {
+    const output = await mirofishAgent.run(agentContext);
+    onAgentUpdate?.({ ...run, status: 'completed', completedAt: new Date().toISOString() });
+    return output;
+  } catch (err) {
+    onAgentUpdate?.({ ...run, status: 'failed', completedAt: new Date().toISOString(), error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
 }

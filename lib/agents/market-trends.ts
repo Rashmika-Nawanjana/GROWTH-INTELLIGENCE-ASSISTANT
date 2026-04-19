@@ -12,11 +12,13 @@ import type {
   ConfidenceLevel,
 } from './types';
 import { scoreToLevel } from './types';
+import { buildContentParts } from './gemini-utils';
+import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
-  const { query, product, competitor, priorContext } = ctx;
+  const { query, product, competitor, priorContext, images } = ctx;
 
   // ── Parallel data fetch ────────────────────────────────────────────────────
   const category = competitor
@@ -110,7 +112,7 @@ Produce a JSON object with this exact shape:
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      contents: [{ role: 'user', parts: buildContentParts(userPrompt, images) }],
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: 'application/json',
@@ -131,7 +133,13 @@ Produce a JSON object with this exact shape:
     };
   }
 
-  const confScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
+  const rawScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
+  // Penalise the Gemini-reported score by the aggregate signal quality of the
+  // tool calls that fed it — a synthesis with 3 failed tools shouldn't get the
+  // same confidence as one with all tools succeeding.
+  const toolResults = extractToolResults([webResult, newsResult, trendsResult, hnResult, redditResult]);
+  const signalPenalty = computeSignalQualityPenalty(toolResults, 5);
+  const confScore = Number.parseFloat((rawScore * signalPenalty).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
   const output: MarketTrendsOutput = {

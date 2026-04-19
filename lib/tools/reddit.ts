@@ -1,6 +1,7 @@
 import { getCached, setCache } from '../supabase';
 import { searchHN } from './hn-algolia';
 import type { ToolResult, RedditPost, HNPost } from './types';
+import { buildToolResult } from './fallback';
 
 // Reddit public JSON API — no key required
 const BASE_URL = 'https://www.reddit.com';
@@ -28,14 +29,12 @@ async function hnFallback(query: string): Promise<ToolResult<RedditPost[]>> {
     created: p.created,
     sentiment: 'neutral' as const,
   }));
-  return {
+  return buildToolResult<RedditPost[]>({
     data: posts,
+    status: posts.length > 0 ? 'degraded' : 'failed',
     source: 'Hacker News (Reddit fallback)',
     sourceUrl: 'https://hn.algolia.com',
-    timestamp: new Date().toISOString(),
-    confidence: hn.confidence,
-    cached: false,
-  };
+  });
 }
 
 export async function searchReddit(
@@ -88,14 +87,12 @@ export async function searchReddit(
   // Reddit returned nothing — fall back to HN
   if (posts.length === 0) return hnFallback(query);
 
-  const result: ToolResult<RedditPost[]> = {
+  const result = buildToolResult<RedditPost[]>({
     data: posts,
+    status: 'ok',
     source: 'Reddit',
     sourceUrl: url.toString(),
-    timestamp: new Date().toISOString(),
-    confidence: 0.75,
-    cached: false,
-  };
+  });
 
   await setCache('reddit', cacheKey, result);
   return result;

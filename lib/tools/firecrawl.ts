@@ -1,5 +1,6 @@
 import { getCached, setCache } from '../supabase';
 import type { ToolResult, ScrapedPage } from './types';
+import { buildToolResult } from './fallback';
 
 const API_KEY = process.env.FIRECRAWL_API_KEY;
 const BASE_URL = 'https://api.firecrawl.dev/v1';
@@ -45,14 +46,14 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
     excerpt: markdown.slice(0, 500),
   };
 
-  const result: ToolResult<ScrapedPage> = {
+  // Empty markdown (e.g. Firecrawl hit a JS wall) = degraded, not ok.
+  const status = markdown.trim().length > 50 ? 'ok' : 'degraded';
+  const result = buildToolResult<ScrapedPage>({
     data: page,
+    status,
     source: 'Firecrawl',
     sourceUrl: url,
-    timestamp: new Date().toISOString(),
-    confidence: 0.9,
-    cached: false,
-  };
+  });
 
   await setCache('firecrawl', cacheKey, result);
   return result;
@@ -83,14 +84,12 @@ async function scrapeBasic(url: string): Promise<ToolResult<ScrapedPage>> {
       excerpt: text.slice(0, 500),
     };
 
-    return {
+    return buildToolResult<ScrapedPage>({
       data: page,
+      status: 'degraded',
       source: 'Direct Scrape (fallback)',
       sourceUrl: url,
-      timestamp: new Date().toISOString(),
-      confidence: 0.6,
-      cached: false,
-    };
+    });
   } catch {
     const page: ScrapedPage = {
       url,
@@ -98,14 +97,12 @@ async function scrapeBasic(url: string): Promise<ToolResult<ScrapedPage>> {
       markdown: '',
       excerpt: 'Could not scrape this page.',
     };
-    return {
+    return buildToolResult<ScrapedPage>({
       data: page,
+      status: 'failed',
       source: 'Direct Scrape (failed)',
       sourceUrl: url,
-      timestamp: new Date().toISOString(),
-      confidence: 0,
-      cached: false,
-    };
+    });
   }
 }
 

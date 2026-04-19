@@ -12,11 +12,13 @@ import type {
   ConfidenceLevel,
 } from './types';
 import { scoreToLevel } from './types';
+import { buildContentParts } from './gemini-utils';
+import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
 
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
-  const { query, product, competitor, competitorUrl, productUrl, priorContext } = ctx;
+  const { query, product, competitor, competitorUrl, productUrl, priorContext, images } = ctx;
 
   const competitorName = competitor ?? 'main competitor';
   const compUrl = competitorUrl ??
@@ -114,7 +116,7 @@ Produce JSON:
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: userPrompt }] }],
+      contents: [{ role: 'user', parts: buildContentParts(userPrompt, images) }],
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: 'application/json',
@@ -136,7 +138,9 @@ Produce JSON:
     };
   }
 
-  const confScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
+  const rawScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
+  const toolResults = extractToolResults([webResult, compPricingResult, prodPricingResult, redditPricingResult, pricingNewsResult]);
+  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 5)).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
   const output: PricingOutput = {
