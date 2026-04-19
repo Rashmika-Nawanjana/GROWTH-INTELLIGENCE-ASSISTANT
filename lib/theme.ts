@@ -67,3 +67,6 @@ const LIGHT_DEFAULTS: ThemeValues = {
   border:     '#E2E8F0',
   background: '#FAFAFA',
 };
+
+// Re-export ThemeProvider from theme.tsx for convenience
+export { ThemeProvider } from './theme.tsx';
