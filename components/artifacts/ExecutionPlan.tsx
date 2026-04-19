@@ -14,7 +14,7 @@
 
 import { useState, useCallback } from 'react';
 import { Mail, Linkedin, Target, BookOpen, Calendar, CheckCircle2, Circle, ArrowRight, Copy, Check, RefreshCw, BarChart3, ChevronDown } from 'lucide-react';
-import { useTheme } from '@/lib/theme';
+import { useTheme } from '@/lib/theme-provider';
 import type { ExecutionPlanOutput, CampaignVariant } from '../../lib/agents/types';
 import { recordVariantResult, refineExecutionPlan } from '@/lib/feedback';
 

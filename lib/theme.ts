@@ -67,7 +67,3 @@ const LIGHT_DEFAULTS: ThemeValues = {
   border:     '#E2E8F0',
   background: '#FAFAFA',
 };
-
-// Re-export context-based useTheme and ThemeProvider from theme.tsx
-// This provides the full theme context with isDark, toggle, etc.
-export { ThemeProvider, useTheme } from './theme';

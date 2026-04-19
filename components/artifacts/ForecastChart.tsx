@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { TrendingUp, TrendingDown, Minus, Fish, ChevronDown, ChevronUp } from 'lucide-react';
 import type { ForecastOutput, ForecastSignal, DistributionBucket } from '@/lib/agents/types';
-import { useTheme } from '@/lib/theme';
+import { useTheme } from '@/lib/theme-provider';
 
 interface ForecastChartProps {
   output: ForecastOutput;

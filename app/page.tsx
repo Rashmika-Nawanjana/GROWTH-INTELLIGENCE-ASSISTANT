@@ -13,7 +13,7 @@ import {
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
-import { useTheme } from '@/lib/theme';
+import { useTheme } from '@/lib/theme-provider';
 import {
   createSession, listSessions, saveMessage, loadMessages, deleteSession, type ChatSession, type StoredMessage,
 } from '@/lib/conversations';
