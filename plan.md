@@ -1,123 +1,24 @@
-Now I have the full picture. Here's the plan:
+1. Core Winning Thesis (What Makes Us Stand Out)
+Judges will see 10+ research bots or chat wrappers. We win by:
 
-4-Hour Hackathon Battle Plan (4 Members)
-Current State
-Beautiful chat UI with mock data (Next.js 15 + Tailwind)
-@google/genai installed but not wired up
-No API routes, no backend, no real data fetching
-All responses are hardcoded in INITIAL_CONVERSATION
-Team Assignment
-Member	Role	Focus
-M1	Backend Lead	API route + Gemini orchestrator + agent coordination
-M2	Data Engineer	Tool functions (SerpAPI, Firecrawl, Reddit, web scraping)
-M3	Frontend Lead	Streaming UI, new artifact types (charts, heatmaps), agent status panel
-M4	Agent Architect	6 domain agent prompts, structured output schemas, system prompts
-Hour-by-Hour Breakdown
-Hour 1 (Setup + Foundation) - All parallel
-M1 - API Route + Orchestrator
+Seamless intent detection & mode switching (no “switch to research mode” — conversation flows naturally, like the example in the brief).
+Ephemeral UIs inside the thread — variant comparison grids, clickable channel selectors, performance maps, one-pagers rendered inline (inspired by Claude Artifacts + generative UI patterns).
+True closed loop with learning — feedback updates the intelligence layer; next cycle is measurably sharper.
+Live signals only — real web research on competitors (11x, Salesloft, Relevance AI, etc.), audience forums, LinkedIn trends.
+Polish & demo magic — beautiful, responsive web demo that feels like the future of growth tools. Full video walkthrough + generalization toggle (Lilian ↔ Bradley ↔ any product).
+Technical excellence — multi-agent orchestration via LangGraph + Claude API (exactly what Anthropic recommends in their 2024–2025 guides).
 
-Create app/api/chat/route.ts — streaming POST endpoint
-Wire up @google/genai with Gemini 2.0 Flash
-Build orchestrator function that takes user query → classifies domain → dispatches to agents
-Define agent coordination pattern (parallel fan-out, sequential synthesis)
-M2 - Tool Functions ✅ COMPLETE
+This directly hits every hard constraint: multi-agent, dynamic UIs, tools/live data, full loop, not a single prompt.
+2. Recommended Tech Stack (Claude-Native & Hackathon-Proven)
 
-lib/tools/serpapi.ts — Google search, trends, news, ads transparency
-lib/tools/firecrawl.ts — page scraping to markdown (+ scrapeBasic fallback)
-lib/tools/reddit.ts — public JSON API (no key) + auto HN Algolia fallback
-lib/tools/hn-algolia.ts — HN search (no key, always available)
-lib/tools/meta-ads.ts — Firecrawl browser scrape of facebook.com/ads/library (no token)
-lib/tools/linkedin-ads.ts — LinkedIn Ad Library scrape via Firecrawl
-lib/tools/patents.ts — USPTO patent search
+LayerChoiceWhy it winsLLMClaude (latest Sonnet/Opus via API)Best reasoning + tool use; native structured outputsOrchestrationLangGraph (stateful graph)Explicit control over loop stages, memory, conditional routing, intent detectionAgents5 specialized agents (supervisor + sub-agents)Matches Anthropic multi-agent best practicesToolsCustom tools + web_search/browse_page (MCP-style)Live signals onlyFrontendNext.js 15 + shadcn/ui + TailwindBeautiful chat thread that renders dynamic JSON → UI components (grids, buttons, charts, cards) inlineUI PatternGenerative/ephemeral UI (JSON schema → React components) + Claude Artifacts inspirationPerfectly matches “ephemeral interfaces” requirementState & MemoryLangGraph persistent state + vector store (for campaign history)Accumulates learning across cyclesDeploymentVercel (free tier) + live demo linkJudges can play with it instantly
+Alternative ultra-minimal path (if we want to ship faster): Build the entire experience as a Claude Artifact (interactive React app inside claude.ai conversation). This is extremely high-wow and perfectly matches the “inside the conversation” spec. We can fall back to this if time is tight.
+3. Agent Architecture (Multi-Agent, Not One Big Prompt)
 
-Tool Strategy Decisions:
-- Reddit: public JSON API (reddit.com/search.json) — no OAuth needed. Auto-falls back to HN Algolia if blocked or returns 0 results.
-- Meta Ads: official API dropped (only covers political/EU ads). Replaced with Firecrawl scrape of public Ad Library page — covers all advertisers.
-- All tools: graceful degradation — never crash agents, always return empty array on failure.
-M3 - Frontend Enhancements
+Orchestrator / Supervisor Agent (Claude + LangGraph node): Detects intent, manages loop state, routes, ensures structured outputs, handles mode switches.
+Research Agent: Live multi-hop research (competitors, audience language, channel trends, PESTEL). Outputs typed JSON findings + confidence scores + sources.
+Content Agent: Turns findings into outreach sequences, LinkedIn posts, A/B variants (with explicit hypotheses), social content, briefs, visual mocks.
+Outreach / Deployment Simulator: Renders ephemeral UIs (side-by-side variant grids, channel choosers). “Deploys” via mock (shows what would happen).
+Feedback / Learning Agent: Ingests engagement data (mock or real), interprets against hypotheses, updates shared intelligence layer.
 
-Add streaming response handling (SSE/ReadableStream from API)
-Build new artifact components:
-TrendChart — simple bar/line chart (use inline SVG or a lightweight chart lib)
-HeatMap — competitive heat map grid
-ScoreCard — confidence-scored insight card
-Add real-time agent status tracker (show which agents are running/completed)
-M4 - Agent Prompts + Schemas
-
-Create lib/agents/ folder with 6 agent definitions:
-market-trends.ts — Market & Trend Sensing
-competitive.ts — Competitive Landscape & Feature Bets
-win-loss.ts — Win/Loss Intelligence
-pricing.ts — Pricing & Packaging
-positioning.ts — Positioning & Messaging Gaps
-adjacent.ts — Adjacent Market Collision
-Define TypeScript types for structured outputs (confidence, sources, facts vs interpretation)
-Write system prompts that enforce grounded, sourced responses
-Hour 2 (Integration) - Pairs merge
-M1 + M2 merge: Wire tools into the orchestrator
-
-Orchestrator calls Gemini with function-calling/tool-use
-Gemini decides which tools to invoke based on query
-Tools run in parallel, results fed back for synthesis
-Final response includes structured JSON with artifacts
-M3 + M4 merge: Wire agent schemas into UI rendering
-
-Map structured output types to artifact components
-Agent status panel shows real agent names from M4's definitions
-Test rendering with sample structured JSON
-Hour 3 (End-to-End + Polish)
-All together: Full integration
-
-Connect frontend → API → agents → tools → response → render
-Test with the 3 demo queries from the brief:
-"Is Lilian competitive in the AI SDR market?"
-"Is the digital workers category accelerating or consolidating?"
-"What should Vector Agents build next?"
-Fix streaming, error handling, loading states
-Add conversational memory (store context in session/state)
-Hour 4 (Demo Prep)
-M1: Add cost estimation display, ensure graceful degradation if APIs fail
-M2: Cache responses for demo reliability, add fallback mock data
-M3: Final UI polish, animations, mobile responsiveness check
-M4: Prepare demo script, test generalization with a second product (not Vector)
-
-Key Files to Create
-
-app/
-  api/
-    chat/
-      route.ts          ← M1 (streaming API endpoint)
-lib/
-  agents/
-    orchestrator.ts     ← M1 (coordinator)
-    market-trends.ts    ← M4
-    competitive.ts      ← M4
-    win-loss.ts         ← M4
-    pricing.ts          ← M4
-    positioning.ts      ← M4
-    adjacent.ts         ← M4
-    types.ts            ← M4 (shared types)
-  tools/
-    serpapi.ts           ← M2
-    firecrawl.ts         ← M2
-    reddit.ts            ← M2
-    hn-algolia.ts        ← M2
-    types.ts             ← M2 (tool response types)
-components/
-  artifacts/
-    TrendChart.tsx       ← M3
-    HeatMap.tsx          ← M3
-    ScoreCard.tsx        ← M3
-    AgentStatus.tsx      ← M3
-Critical Integration Points
-M2 exports tool functions → M1 imports them into orchestrator
-M4 exports agent configs + types → M1 uses them to dispatch, M3 uses types to render
-M1's API returns streaming JSON → M3 parses and renders artifacts
-Demo Script (10 min)
-(1 min) Problem framing — growth intelligence gap
-(2 min) Live query: "Vector vs Lilian in AI SDR" — show agents working in parallel
-(2 min) Walk through artifacts: matrix, trends, recommendations with sources
-(1 min) Follow-up query showing conversational memory
-(2 min) Generalization: run same system on a different product
-(2 min) Architecture walkthrough — show multi-agent coordination, not a wrapper
-Want me to start building the foundation files now? I'd suggest starting with the shared types and the API route since those unblock everyone else.
+All agents use structured outputs (Pydantic schemas) so content is always traceable to signals.

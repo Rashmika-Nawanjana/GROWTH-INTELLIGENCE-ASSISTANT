@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(wc -l e:/Projects/GROWTH-INTELLIGENCE-ASSISTANT/app/api/memory/*)"
+      "Bash(wc -l e:/Projects/GROWTH-INTELLIGENCE-ASSISTANT/app/api/memory/*)",
+      "Bash(grep -E \"^export\" /e/Projects/GROWTH-INTELLIGENCE-ASSISTANT/lib/agents/*.ts)",
+      "Bash(wc -l /e/Projects/GROWTH-INTELLIGENCE-ASSISTANT/lib/agents/*.ts)",
+      "WebFetch(domain:themefisher.com)",
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "WebFetch(domain:clarity-astro.vercel.app)"
     ]
   }
 }
