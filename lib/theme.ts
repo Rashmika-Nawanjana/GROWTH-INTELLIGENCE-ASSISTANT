@@ -34,7 +34,7 @@ export interface ThemeValues {
  * Falls back to the design-system defaults when called server-side
  * (where `getComputedStyle` and CSS vars aren't available).
  */
-export function useTheme(): ThemeValues {
+export function useThemeColors(): ThemeValues {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     // SSR / server-component fallback — use hard-coded light-mode defaults
     return LIGHT_DEFAULTS;
@@ -68,5 +68,6 @@ const LIGHT_DEFAULTS: ThemeValues = {
   background: '#FAFAFA',
 };
 
-// Re-export ThemeProvider from theme.tsx for convenience
-export { ThemeProvider } from './theme.tsx';
+// Re-export context-based useTheme and ThemeProvider from theme.tsx
+// This provides the full theme context with isDark, toggle, etc.
+export { ThemeProvider, useTheme } from './theme.tsx';
