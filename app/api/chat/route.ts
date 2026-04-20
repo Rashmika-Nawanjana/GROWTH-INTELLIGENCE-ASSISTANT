@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
     memoryContext?: string;
     includeMirofish?: boolean;
     followUpMode?: 'full' | 'targeted';
+    selectedAgents?: string[];
   };
 
   try {
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const { query, history = [], images = [], memoryContext, includeMirofish = false, followUpMode = 'full' } = body;
+  const { query, history = [], images = [], memoryContext, includeMirofish = false, followUpMode = 'full', selectedAgents = [] } = body;
 
   if (!query?.trim()) {
     return jsonError('query is required', 400);
@@ -130,7 +131,7 @@ export async function POST(req: NextRequest) {
         },
         images,
         memoryContext,
-        { followUpMode },
+        { followUpMode, selectedAgents },
       );
       // Send main result — frontend renders immediately, no need to wait for MiroFish
       write({ type: 'result', output: result });
