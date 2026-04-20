@@ -110,6 +110,8 @@ export async function searchSubreddits(
     subreddits.map(sr => searchReddit(query, sr))
   );
 
+  const rejectedCount = results.filter(r => r.status === 'rejected').length;
+
   const allPosts: RedditPost[] = [];
   for (const r of results) {
     if (r.status === 'fulfilled') {
@@ -128,11 +130,16 @@ export async function searchSubreddits(
     .sort((a, b) => b.score - a.score)
     .slice(0, 12);
 
-  return {
+  const status = unique.length === 0
+    ? 'failed'
+    : rejectedCount > 0
+      ? 'degraded'
+      : 'ok';
+
+  return buildToolResult<RedditPost[]>({
     data: unique,
+    status,
     source: 'Reddit (multi-subreddit)',
-    timestamp: new Date().toISOString(),
-    confidence: 0.75,
-    cached: false,
-  };
+    sourceUrl: 'https://www.reddit.com',
+  });
 }

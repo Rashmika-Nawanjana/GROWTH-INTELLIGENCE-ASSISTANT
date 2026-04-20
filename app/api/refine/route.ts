@@ -53,7 +53,7 @@ async function getSupabase() {
 // Turn raw outcome rows into a compact text block the execution sub-agents can
 // read as part of `priorContext`. Deliberately human-readable so Gemini can
 // reason over it directly.
-function buildFeedbackSummary(
+export function buildFeedbackSummary(
   feedback: Array<Record<string, unknown>>,
   actions: Array<Record<string, unknown>>,
   variantResults: Array<Record<string, unknown>>,
@@ -102,11 +102,11 @@ function buildFeedbackSummary(
   return lines.join('\n');
 }
 
-function normalizeFact(fact: string): string {
+export function normalizeFact(fact: string): string {
   return fact.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-function buildRefinementDeltas(previous: AgentOutput[], next: AgentOutput[]): RefinementDelta[] {
+export function buildRefinementDeltas(previous: AgentOutput[], next: AgentOutput[]): RefinementDelta[] {
   const previousByDomain = new Map(previous.map(o => [o.domain, o]));
 
   return next

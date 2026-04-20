@@ -1,5 +1,6 @@
 import { getCached, setCache } from '../supabase';
 import type { ToolResult } from './types';
+import { buildToolResult } from './fallback';
 
 const BASE_URL = 'https://api.patentsview.org/patents/query';
 
@@ -58,26 +59,22 @@ export async function searchPatents(
       patent_url: `https://patents.google.com/patent/US${p.patent_number}`,
     }));
 
-    const result: ToolResult<Patent[]> = {
+    const result = buildToolResult<Patent[]>({
       data: patents,
+      status: patents.length > 0 ? 'ok' : 'degraded',
       source: 'USPTO Patents (PatentsView)',
       sourceUrl: `https://patentsview.org/search?q=${encodeURIComponent(query)}`,
-      timestamp: new Date().toISOString(),
-      confidence: patents.length > 0 ? 0.8 : 0.2,
-      cached: false,
-    };
+    });
 
     await setCache('patents', cacheKey, result);
     return result;
   } catch {
-    return {
+    return buildToolResult<Patent[]>({
       data: [],
+      status: 'failed',
       source: 'USPTO Patents (failed)',
       sourceUrl: `https://patentsview.org/search?q=${encodeURIComponent(query)}`,
-      timestamp: new Date().toISOString(),
-      confidence: 0,
-      cached: false,
-    };
+    });
   }
 }
 

@@ -57,6 +57,8 @@ type LiveRunMetrics = {
   failedAgentCount: number;
   runningAgentCount: number;
   estimatedCostUsd: number;
+  geminiCallCount: number;
+  toolCallCount: number;
 };
 type Message = {
   id: number;
@@ -1285,6 +1287,8 @@ export default function VeracityDashboard() {
                       const cost = final?.estimatedCostUsd ?? live?.estimatedCostUsd ?? 0;
                       const agentTotal = final?.agentCount ?? live?.agentCount ?? 0;
                       const agentDone = final?.completedAgentCount ?? live?.completedAgentCount ?? 0;
+                      const geminiCalls = final?.geminiCallCount ?? live?.geminiCallCount ?? 0;
+                      const toolCalls = final?.toolCallCount ?? live?.toolCallCount ?? 0;
                       const isLive = !final && !!live;
                       return (
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded flex items-center gap-2"
@@ -1295,12 +1299,10 @@ export default function VeracityDashboard() {
                           <span title="Estimated cost">${cost.toFixed(4)}</span>
                           <span style={{ opacity: 0.3 }}>|</span>
                           <span title="Agents completed / dispatched">{agentDone}/{agentTotal} agents</span>
-                          {final && (
-                            <>
-                              <span style={{ opacity: 0.3 }}>|</span>
-                              <span title="Gemini API calls">{final.geminiCallCount} calls</span>
-                            </>
-                          )}
+                          <span style={{ opacity: 0.3 }}>|</span>
+                          <span title="Gemini API calls">{isLive ? `~${geminiCalls}` : geminiCalls} API</span>
+                          <span style={{ opacity: 0.3 }}>|</span>
+                          <span title="External tool invocations">{isLive ? `~${toolCalls}` : toolCalls} tools</span>
                         </span>
                       );
                     })()}

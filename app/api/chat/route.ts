@@ -14,6 +14,8 @@ interface LiveMetrics {
   failedAgentCount: number;
   runningAgentCount: number;
   estimatedCostUsd: number;
+  geminiCallCount: number;
+  toolCallCount: number;
 }
 
 type StreamChunk =
@@ -101,7 +103,8 @@ export async function POST(req: NextRequest) {
     // Each finished agent (completed or failed) = ~1 Gemini call for the
     // live readout. The final total also covers classification + synthesis
     // + mind map, which only land on the `result` chunk.
-    const billedCalls = completed + failed;
+    const billedCalls = completed + failed + 1; // +1 classifier call
+    const estimatedToolCalls = (completed + failed) * 3;
     return {
       elapsedMs: Date.now() - orchestrationStart,
       agentCount: liveAgentState.size,
@@ -109,6 +112,8 @@ export async function POST(req: NextRequest) {
       failedAgentCount: failed,
       runningAgentCount: running,
       estimatedCostUsd: Number.parseFloat((billedCalls * LIVE_COST_PER_AGENT).toFixed(5)),
+      geminiCallCount: billedCalls,
+      toolCallCount: estimatedToolCalls,
     };
   };
 

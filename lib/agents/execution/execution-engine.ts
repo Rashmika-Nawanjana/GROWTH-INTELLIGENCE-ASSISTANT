@@ -23,6 +23,7 @@ import { scoreToLevel } from '../types';
 import { runContentAgent } from './content-agent';
 import { runABVariantAgent } from './ab-variant-agent';
 import { runOutreachFormatter } from './outreach-formatter';
+import { enforceExecutionGrounding } from './grounding';
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
   const { researchOutputs = [] } = ctx;
@@ -94,9 +95,10 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
         nextSteps: ['Run A/B test', 'Analyse reply sentiment after 72h'],
       };
 
-  const variants: CampaignVariant[] = outreachResult?.enrichedVariants?.length
+  const mergedVariants: CampaignVariant[] = outreachResult?.enrichedVariants?.length
     ? outreachResult.enrichedVariants
     : inputVariants;
+  const variants = enforceExecutionGrounding(mergedVariants, researchOutputs, ctx.product);
 
   const deployment = outreachResult?.deployment ?? [];
 
