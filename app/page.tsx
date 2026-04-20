@@ -8,7 +8,7 @@ import {
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon, Rocket, Fish,
-  ThumbsUp, ThumbsDown,
+  ThumbsUp, ThumbsDown, Menu,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput, RefinementDelta } from '@/lib/agents/types';
@@ -363,6 +363,7 @@ export default function VeracityDashboard() {
   const [userMemory, setUserMemory] = useState<UserMemory | null>(null);
   const [mirofishEnabled, setMirofishEnabled] = useState(true);
   const [mirofishRunning, setMirofishRunning] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const followUpEndRef = useRef<HTMLDivElement>(null);
@@ -827,8 +828,24 @@ export default function VeracityDashboard() {
     <div className={isDark ? '' : 'light'} style={{ display: 'contents' }}>
     <div className="flex h-screen w-full overflow-hidden" style={{ background: isDark ? '#0a0a0a' : '#f9f9f9', color: textMain, fontFamily: 'inherit' }}>
 
+      {/* ══ Mobile sidebar overlay backdrop ══ */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* ══════════════════════════════════ SIDEBAR ══ */}
-      <aside className="w-[228px] flex-shrink-0 flex flex-col h-full" style={{ background: sidebarBg, borderRight: `1px solid ${borderC}` }}>
+      <aside
+        className={[
+          'flex-shrink-0 flex flex-col h-full z-50 transition-transform duration-300',
+          'fixed md:static inset-y-0 left-0',
+          'w-[228px]',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+        ].join(' ')}
+        style={{ background: sidebarBg, borderRight: `1px solid ${borderC}` }}
+      >
 
         {/* Logo */}
         <div className="px-5 pt-5 pb-4" style={{ borderBottom: `1px solid ${borderC}` }}>
@@ -841,7 +858,7 @@ export default function VeracityDashboard() {
         {/* New query */}
         <div className="px-3 pt-3 pb-2.5">
           <button
-            onClick={handleNewQuery}
+            onClick={() => { handleNewQuery(); setSidebarOpen(false); }}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-[13px] font-medium transition-colors focus-ring"
             style={{ background: isDark ? '#1a1a1a' : '#f0f0f0', border: `1px solid ${borderC}`, color: textMain }}
           >
@@ -887,7 +904,7 @@ export default function VeracityDashboard() {
               </div>
               {sessions.slice(0, 8).map((session) => (
                 <div key={session.id} className="relative group flex items-center mb-0.5">
-                  <button onClick={() => loadSession(session.id)} title={session.title}
+                  <button onClick={() => { loadSession(session.id); setSidebarOpen(false); }} title={session.title}
                     className="flex-1 text-left text-[12px] px-2 py-1.5 rounded-md truncate transition-colors"
                     style={{ color: currentSessionId === session.id ? textMain : textMuted, paddingRight: '28px' }}
                     onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMain; b.style.background = isDark ? '#1a1a1a' : '#f0f0f0'; }}
@@ -960,8 +977,18 @@ export default function VeracityDashboard() {
       <div className="flex-1 flex flex-col h-full overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="shrink-0 flex items-center gap-3 px-5 py-3 z-20"
+        <header className="shrink-0 flex items-center gap-2 md:gap-3 px-3 md:px-5 py-3 z-20"
           style={{ background: headerBg, borderBottom: `1px solid ${borderC}`, backdropFilter: 'blur(12px)' }}>
+
+          {/* Mobile hamburger */}
+          <button
+            className="md:hidden w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0"
+            style={{ border: `1px solid ${borderC}`, background: isDark ? '#1a1a1a' : '#f0f0f0', color: textMuted }}
+            onClick={() => setSidebarOpen(v => !v)}
+            aria-label="Toggle sidebar"
+          >
+            <Menu size={16} />
+          </button>
 
           {/* Search */}
           <div className="flex-1 flex flex-col gap-2">
@@ -986,7 +1013,7 @@ export default function VeracityDashboard() {
                 onClick={() => setMirofishEnabled(v => !v)}
                 disabled={isLoading}
                 title={mirofishEnabled ? 'MiroFish Forecast ON — swarm simulation will run after main results (takes extra time)' : 'Enable MiroFish Forecast — runs swarm-simulation probabilistic forecast after main results'}
-                className="shrink-0 flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11px] font-mono font-medium border transition-all disabled:opacity-40 select-none"
+                className="shrink-0 flex items-center gap-1 sm:gap-1.5 h-8 px-2 sm:px-2.5 rounded-lg text-[11px] font-mono font-medium border transition-all disabled:opacity-40 select-none"
                 style={mirofishEnabled ? {
                   background: 'rgba(6,182,212,0.12)',
                   color: '#06b6d4',
@@ -1000,20 +1027,20 @@ export default function VeracityDashboard() {
                 {mirofishRunning
                   ? <RefreshCw size={11} className="animate-spin" />
                   : <Fish size={11} />}
-                <span>{mirofishRunning ? 'forecasting…' : 'MiroFish'}</span>
+                <span className="hidden sm:inline">{mirofishRunning ? 'forecasting…' : 'MiroFish'}</span>
               </button>
 
               <div className="relative flex-1 flex items-center rounded-lg transition-all"
                 style={{ border: `1px solid ${borderC}`, background: inputBg }}
                 onFocus={() => {}} >
-                <Search size={13} className="absolute left-3.5 pointer-events-none" style={{ color: textSubtle }} />
+                <Search size={13} className="absolute left-3 sm:left-3.5 pointer-events-none" style={{ color: textSubtle }} />
                 <input
                   type="text"
                   value={inputValue}
                   onChange={e => setInputValue(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && handleSend(inputValue)}
                   placeholder="Ask a growth intelligence question…"
-                  className="w-full h-10 pl-9 pr-[88px] text-[14px] bg-transparent outline-none"
+                  className="w-full h-10 pl-8 sm:pl-9 pr-[72px] sm:pr-[88px] text-[13px] sm:text-[14px] bg-transparent outline-none"
                   style={{ color: textMain }}
                   disabled={isLoading}
                 />
@@ -1086,7 +1113,7 @@ export default function VeracityDashboard() {
         </header>
 
         {/* ── Body ── */}
-        <div className="flex-1 overflow-y-auto grid-bg" style={{ padding: '24px' }}>
+        <div className="flex-1 overflow-y-auto grid-bg" style={{ padding: 'clamp(12px, 3vw, 24px)' }}>
           <div className="flex flex-col gap-5 max-w-[1200px] w-full mx-auto">
 
             {/* Empty state */}
@@ -1121,8 +1148,8 @@ export default function VeracityDashboard() {
             {(currentResult || isLoading) && (
               <div>
                 {/* Row header */}
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex flex-col gap-2 max-w-[65%]">
+                <div className="flex items-center justify-between mb-3 gap-2">
+                  <div className="flex flex-col gap-2 min-w-0 flex-1">
                     <p className="text-[13.5px] font-medium truncate" style={{ color: textMain }}>
                       {recentQueries[recentQueries.length - 1] ?? 'analysing…'}
                     </p>
@@ -1157,7 +1184,7 @@ export default function VeracityDashboard() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {ALL_DOMAINS.map(domain => (
                     <AgentCard
                       key={domain}
@@ -1295,7 +1322,7 @@ export default function VeracityDashboard() {
                       <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>
                         Strategic Recommendations
                       </p>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {currentResult.recommendations.map((rec: any, i: number) => (
                           <div key={i} className="rounded-lg p-4 flex flex-col gap-2.5"
                             style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
@@ -1485,24 +1512,26 @@ export default function VeracityDashboard() {
 
             {/* ── Follow-up input ── */}
             {hasResult && (
-              <div className="flex items-center gap-3 rounded-lg px-4 py-3"
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 rounded-lg px-4 py-3"
                 style={{ border: `1px solid ${borderC}`, background: cardBg }}
                 ref={followUpEndRef}>
-                <MessageSquarePlus size={14} style={{ color: textSubtle, flexShrink: 0 }} />
-                <input
-                  type="text"
-                  value={followUpInput}
-                  onChange={e => setFollowUpInput(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleFollowUp(followUpInput)}
-                  placeholder="Ask a follow-up — analysis above stays intact…"
-                  className="flex-1 text-[13px] bg-transparent outline-none"
-                  style={{ color: textMain }}
-                  disabled={isFollowingUp || isLoading}
-                />
+                <div className="flex items-center gap-2 flex-1 min-w-0">
+                  <MessageSquarePlus size={14} style={{ color: textSubtle, flexShrink: 0 }} />
+                  <input
+                    type="text"
+                    value={followUpInput}
+                    onChange={e => setFollowUpInput(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleFollowUp(followUpInput)}
+                    placeholder="Ask a follow-up…"
+                    className="flex-1 text-[13px] bg-transparent outline-none min-w-0"
+                    style={{ color: textMain }}
+                    disabled={isFollowingUp || isLoading}
+                  />
+                </div>
                 <button
                   onClick={() => handleFollowUp(followUpInput)}
                   disabled={!followUpInput.trim() || isFollowingUp || isLoading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-all disabled:opacity-40"
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-[12px] font-medium transition-all disabled:opacity-40 shrink-0"
                   style={{ background: '#0070f3', color: '#fff' }}
                   onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0060df'; }}
                   onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0070f3'; }}>
