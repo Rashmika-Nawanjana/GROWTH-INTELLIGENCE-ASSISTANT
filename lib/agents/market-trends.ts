@@ -1,6 +1,7 @@
 import { searchWeb, searchNews, searchTrends } from '../tools/serpapi';
 import { searchHN, getTechSentiment } from '../tools/hn-algolia';
 import { searchReddit } from '../tools/reddit';
+import { planQueries } from '../tools/query-planner';
 import { GoogleGenAI } from '@google/genai';
 import type {
   AgentConfig,
@@ -20,6 +21,15 @@ const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 async function run(ctx: AgentContext): Promise<AgentOutput> {
   const { query, product, competitor, priorContext, images } = ctx;
 
+  // ── Smart query planning — generates 3 query variants per intent ─────────
+  const queryBundle = planQueries({
+    product,
+    competitor,
+    domain: 'market-trends',
+    query,
+    category: query.toLowerCase().includes('ai') ? 'AI/ML' : 'SaaS',
+  });
+
   // ── Parallel data fetch ────────────────────────────────────────────────────
   const category = competitor
     ? `${product} vs ${competitor}`
@@ -27,12 +37,15 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
 
   const trendKeywords = [product, competitor].filter(Boolean) as string[];
 
-  const [webResult, newsResult, trendsResult, hnResult, redditResult] = await Promise.allSettled([
-    searchWeb(`${query} trends 2025 2026`),
+  // Use query bundle: broad + targeted + hypothesis queries in parallel
+  const [webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult] = await Promise.allSettled([
+    searchWeb(queryBundle.broad),
     searchNews(`${product}${competitor ? ` ${competitor}` : ''} market growth revenue funding`),
     searchTrends(trendKeywords),
     getTechSentiment(product),
-    searchReddit(query),
+    searchReddit(queryBundle.hypothesis),
+    searchWeb(queryBundle.targeted),
+    searchWeb(queryBundle.hypothesis),
   ]);
 
   // ── Collect sources ────────────────────────────────────────────────────────
@@ -40,13 +53,25 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   const rawContent: string[] = [];
 
   if (webResult.status === 'fulfilled') {
-    webResult.value.data.slice(0, 5).forEach(r => {
+    webResult.value.data.slice(0, 3).forEach(r => {
       sources.push({ url: r.url, title: r.title, timestamp: webResult.value.timestamp, tool: 'serpapi' });
-      rawContent.push(`[WEB] ${r.title}: ${r.snippet}`);
+      rawContent.push(`[WEB BROAD] ${r.title}: ${r.snippet}`);
+    });
+  }
+  if (webTargetedResult.status === 'fulfilled') {
+    webTargetedResult.value.data.slice(0, 2).forEach(r => {
+      sources.push({ url: r.url, title: r.title, timestamp: webTargetedResult.value.timestamp, tool: 'serpapi' });
+      rawContent.push(`[WEB TARGETED] ${r.title}: ${r.snippet}`);
+    });
+  }
+  if (webHypothesisResult.status === 'fulfilled') {
+    webHypothesisResult.value.data.slice(0, 2).forEach(r => {
+      sources.push({ url: r.url, title: r.title, timestamp: webHypothesisResult.value.timestamp, tool: 'serpapi' });
+      rawContent.push(`[WEB HYPOTHESIS] ${r.title}: ${r.snippet}`);
     });
   }
   if (newsResult.status === 'fulfilled') {
-    newsResult.value.data.slice(0, 5).forEach(r => {
+    newsResult.value.data.slice(0, 4).forEach(r => {
       sources.push({ url: r.url, title: r.title, timestamp: newsResult.value.timestamp, tool: 'serpapi' });
       rawContent.push(`[NEWS] ${r.title}: ${r.snippet}`);
     });
@@ -137,8 +162,8 @@ Produce a JSON object with this exact shape:
   // Penalise the Gemini-reported score by the aggregate signal quality of the
   // tool calls that fed it — a synthesis with 3 failed tools shouldn't get the
   // same confidence as one with all tools succeeding.
-  const toolResults = extractToolResults([webResult, newsResult, trendsResult, hnResult, redditResult]);
-  const signalPenalty = computeSignalQualityPenalty(toolResults, 5);
+  const toolResults = extractToolResults([webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult]);
+  const signalPenalty = computeSignalQualityPenalty(toolResults, 7);
   const confScore = Number.parseFloat((rawScore * signalPenalty).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
