@@ -63,6 +63,20 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
     hypothesis: `platform expansion AI agents threat to ${ctx.product} category`,
     keywords: ['threat', 'disruption', 'adjacent', 'platform', 'expansion', 'funding'],
   }),
+
+  'execution-engine': (ctx) => ({
+    broad: `${ctx.product} outreach email templates campaign copy examples`,
+    targeted: `site:linkedin.com "${ctx.product}" campaign message copy best practices`,
+    hypothesis: `high-performing ${ctx.category} outreach email hooks ROI angle`,
+    keywords: ['outreach', 'copy', 'email', 'campaign', 'hook', 'variant'],
+  }),
+
+  mirofish: (ctx) => ({
+    broad: `${ctx.product} forecast prediction market sizing TAM revenue projection`,
+    targeted: `site:crunchbase.com OR site:techcrunch.com "${ctx.category}" market size growth projection`,
+    hypothesis: `${ctx.product} category market expansion forecast 2026 2027 opportunity`,
+    keywords: ['forecast', 'TAM', 'market size', 'projection', 'growth', 'opportunity'],
+  }),
 };
 
 /**
