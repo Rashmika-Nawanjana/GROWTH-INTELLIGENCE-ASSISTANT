@@ -880,6 +880,24 @@ export default function VeracityDashboard() {
     <div className={isDark ? '' : 'light'} style={{ display: 'contents' }}>
     <div className="flex h-screen w-full overflow-hidden" style={{ background: isDark ? '#0a0a0a' : '#f9f9f9', color: textMain, fontFamily: 'inherit' }}>
 
+      {/* Persistent hamburger toggle so menu control is always visible */}
+      <button
+        type="button"
+        onClick={() => setSidebarOpen(v => !v)}
+        aria-label="Toggle sidebar"
+        className="fixed top-3 left-3 z-[70] h-9 px-2.5 rounded-md flex items-center gap-1.5 transition-colors"
+        style={{
+          border: `1px solid ${borderC}`,
+          background: isDark ? 'rgba(17,17,17,0.95)' : 'rgba(255,255,255,0.95)',
+          color: textMuted,
+          backdropFilter: 'blur(8px)',
+          boxShadow: isDark ? '0 6px 16px rgba(0,0,0,0.4)' : '0 6px 16px rgba(15,23,42,0.12)',
+        }}
+      >
+        {sidebarOpen ? <X size={15} /> : <Menu size={15} />}
+        <span className="text-[11px] font-mono hidden sm:inline">menu</span>
+      </button>
+
       {/* ══ Sidebar overlay backdrop ══ */}
       {sidebarOpen && (
         <div
@@ -1029,16 +1047,7 @@ export default function VeracityDashboard() {
         <header className="shrink-0 flex items-center gap-2 md:gap-3 px-3 md:px-5 py-3 z-20"
           style={{ background: headerBg, borderBottom: `1px solid ${borderC}`, backdropFilter: 'blur(12px)' }}>
 
-          {/* Hamburger */}
-          <button
-            className="w-auto px-2.5 h-8 flex items-center justify-center gap-1.5 rounded-md transition-colors shrink-0"
-            style={{ border: `1px solid ${borderC}`, background: isDark ? '#1a1a1a' : '#f0f0f0', color: textMuted }}
-            onClick={() => setSidebarOpen(v => !v)}
-            aria-label="Toggle sidebar"
-          >
-            <Menu size={16} />
-            <span className="hidden sm:inline text-[11px] font-mono">Menu</span>
-          </button>
+          <div className="w-8 shrink-0" />
 
           {/* Search */}
           <div className="flex-1 flex flex-col gap-2">
