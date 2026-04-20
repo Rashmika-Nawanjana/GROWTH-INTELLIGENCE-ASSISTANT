@@ -285,6 +285,7 @@ async function generateMindMap(
   const outputSummaries = outputs.map(o => ({
     domain: o.domain,
     confidence: o.confidence,
+    confidenceScore: o.confidenceScore,
     facts: o.facts.slice(0, 5),
     interpretation: o.interpretation.slice(0, 3),
   }));
@@ -293,21 +294,24 @@ async function generateMindMap(
 
 Product: "${product}"
 Query: "${query}"
-Agent findings:
+Agent findings (use domain names exactly as given for sourceAgent):
 ${JSON.stringify(outputSummaries, null, 2)}
 
-Create a mind map with 3-6 top-level branches. Each branch should have 2-4 leaf nodes.
+Create a mind map with 4-6 top-level branches. Each branch maps to one of the intelligence domains above.
+Each branch should have 2-4 child nodes. Key children with deep insights may have 1-3 grandchildren.
 Every node must have a sentiment: "positive", "negative", "warning", or "neutral".
 
 CRITICAL RULES:
-- Every "id" must be a unique string (e.g. "branch-1", "leaf-1-2")
-- Every "label" MUST be a complete, meaningful phrase (3-8 words). NEVER return one-word labels like "Numerous" or "Significant" — always use full descriptive phrases like "Numerous competitors in API market"
-- Every node MUST have a non-empty label. Do not return empty or whitespace-only labels
-- Keep branch labels short (2-5 words) and child labels slightly longer (4-10 words)
+- Every "id" must be globally unique (e.g. "branch-1", "leaf-1-2", "gc-1-2-1")
+- Every "label" MUST be a complete, meaningful phrase (3-8 words). NEVER use one-word labels
+- Every node MUST have a non-empty label and a non-empty "detail" string
+- Keep branch labels concise (2-5 words); child/grandchild labels slightly longer (4-10 words)
+- Each branch MUST set "sourceAgent" to the exact domain string that most contributed to it (e.g. "market-trends", "competitive", "win-loss", "pricing", "positioning", "adjacent")
+- Each branch MUST set "confidence" to the confidence level of its source domain ("high", "medium", or "low")
 
 Return ONLY valid JSON (no markdown, no fences):
 {
-  "centralTopic": "string — the core topic (short, 3-8 words)",
+  "centralTopic": "string — core topic (3-8 words)",
   "summary": "string — one-line overview of the map",
   "branches": [
     {
@@ -315,12 +319,22 @@ Return ONLY valid JSON (no markdown, no fences):
       "label": "string — branch title (2-5 words)",
       "detail": "string — one sentence branch summary",
       "sentiment": "positive" | "neutral" | "negative" | "warning",
+      "confidence": "high" | "medium" | "low",
+      "sourceAgent": "market-trends" | "competitive" | "win-loss" | "pricing" | "positioning" | "adjacent",
       "children": [
         {
           "id": "leaf-1-1",
           "label": "string — complete descriptive insight (4-10 words)",
           "detail": "string — supporting evidence or context",
-          "sentiment": "positive" | "neutral" | "negative" | "warning"
+          "sentiment": "positive" | "neutral" | "negative" | "warning",
+          "children": [
+            {
+              "id": "gc-1-1-1",
+              "label": "string — specific data point or sub-insight (4-10 words)",
+              "detail": "string — evidence or source context",
+              "sentiment": "positive" | "neutral" | "negative" | "warning"
+            }
+          ]
         }
       ]
     }

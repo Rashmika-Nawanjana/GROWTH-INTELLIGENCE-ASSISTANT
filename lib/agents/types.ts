@@ -170,6 +170,8 @@ export interface MindMapNode {
   label: string;
   detail?: string;                // short description shown on hover/expand
   sentiment?: 'positive' | 'neutral' | 'negative' | 'warning';
+  confidence?: ConfidenceLevel;   // per-node confidence (from source agent)
+  sourceAgent?: string;           // which intelligence domain produced this branch
   children?: MindMapNode[];
 }
 
