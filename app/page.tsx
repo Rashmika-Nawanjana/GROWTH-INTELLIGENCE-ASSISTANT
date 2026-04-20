@@ -6,7 +6,7 @@ import {
   Send, Plus, Search, ChevronRight, RefreshCw, ArrowUpRight,
   LogOut, User, Layers, X, History, GitBranch,
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
-  CheckCircle2, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
+  CheckCircle2, Check, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon, Rocket, Fish,
   ThumbsUp, ThumbsDown, Menu,
 } from 'lucide-react';
@@ -189,13 +189,36 @@ function ConfidenceBadge({ level }: { level?: string }) {
 }
 
 /* ─── Sidebar agent row ──────────────────────────────────── */
-function SidebarAgentRow({ domain, run }: { domain: Domain; run?: AgentRun }) {
+function SidebarAgentRow({
+  domain,
+  run,
+  selected,
+  onToggle,
+}: {
+  domain: Domain;
+  run?: AgentRun;
+  selected: boolean;
+  onToggle: () => void;
+}) {
   const { isDark, textMuted, textSubtle } = useTheme();
   const meta   = DOMAIN_META[domain];
   const status = run?.status ?? 'idle';
 
   return (
-    <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-md">
+    <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors"
+      style={{ background: selected ? (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(15,23,42,0.03)') : 'transparent' }}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={`${selected ? 'Disable' : 'Enable'} ${meta.short}`}
+        className="w-3.5 h-3.5 rounded-sm border shrink-0 flex items-center justify-center"
+        style={{
+          borderColor: selected ? meta.color : (isDark ? '#333' : '#cbd5e1'),
+          background: selected ? meta.color : 'transparent',
+        }}
+      >
+        {selected && <Check size={10} color="#fff" />}
+      </button>
       <div className="w-3.5 shrink-0 flex justify-center">
         {status === 'running'   && <RefreshCw size={11} style={{ color: meta.color }} className="animate-spin" />}
         {status === 'completed' && <CheckCircle2 size={11} style={{ color: '#10b981' }} />}
@@ -203,6 +226,7 @@ function SidebarAgentRow({ domain, run }: { domain: Domain; run?: AgentRun }) {
         {(status === 'idle' || status === 'pending') && <Circle size={11} style={{ color: isDark ? '#333' : '#ccc' }} />}
       </div>
       <span className="text-[12px] flex-1 truncate" style={{
+        textDecoration: selected ? 'none' : 'line-through',
         color: status === 'running'   ? meta.color :
                status === 'completed' ? undefined :
                status === 'failed'    ? '#ef4444' : textSubtle,
@@ -363,9 +387,11 @@ export default function VeracityDashboard() {
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [userMemory, setUserMemory] = useState<UserMemory | null>(null);
-  const [mirofishEnabled, setMirofishEnabled] = useState(true);
   const [mirofishRunning, setMirofishRunning] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedAgents, setSelectedAgents] = useState<Record<Domain, boolean>>(() =>
+    Object.fromEntries(ALL_DOMAINS.map(d => [d, true])) as Record<Domain, boolean>
+  );
 
   const fileInputRef   = useRef<HTMLInputElement>(null);
   const followUpEndRef = useRef<HTMLDivElement>(null);
@@ -375,6 +401,7 @@ export default function VeracityDashboard() {
   const hasResult      = !!(currentResult?.orchestratorOutput);
   const completedCount = currentResult?.agentRuns?.filter(r => r.status === 'completed').length ?? 0;
   const totalCount     = currentResult?.agentRuns?.length ?? 0;
+  const selectedAgentIds = ALL_DOMAINS.filter(d => selectedAgents[d]);
 
   const refreshSessions = useCallback(async () => {
     setLoadingSessions(true);
@@ -518,6 +545,15 @@ export default function VeracityDashboard() {
     const images = imagesToSend ?? attachedImages;
     const effectiveText = text.trim() || (images.length > 0 ? 'Analyse the attached image(s).' : '');
     if (!effectiveText || isLoading) return;
+    if (selectedAgentIds.length === 0) {
+      setMessages(prev => [...prev, {
+        id: Date.now(),
+        role: 'assistant',
+        type: 'text',
+        content: 'Select at least one agent before running the query.',
+      }]);
+      return;
+    }
 
     setExpandedDomain(null);
     setFollowUps([]);
@@ -549,7 +585,14 @@ export default function VeracityDashboard() {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: effectiveText, history, images: imagePayloads, memoryContext, includeMirofish: mirofishEnabled }),
+        body: JSON.stringify({
+          query: effectiveText,
+          history,
+          images: imagePayloads,
+          memoryContext,
+          includeMirofish: selectedAgents.mirofish,
+          selectedAgents: selectedAgentIds,
+        }),
       });
       if (!res.ok || !res.body) throw new Error(`API error ${res.status}`);
 
@@ -586,7 +629,7 @@ export default function VeracityDashboard() {
               const out: OrchestratorOutput = chunk.output;
               finalOutput = out;
               // If mirofish was requested, mark it as running so the sidebar shows it
-              if (mirofishEnabled) {
+              if (selectedAgents.mirofish) {
                 setMirofishRunning(true);
                 setMessages(prev => prev.map(m =>
                   m.id !== assistantId ? m : {
@@ -748,7 +791,14 @@ export default function VeracityDashboard() {
     try {
       const res = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: text, history, memoryContext, followUpMode }),
+        body: JSON.stringify({
+          query: text,
+          history,
+          memoryContext,
+          followUpMode,
+          includeMirofish: selectedAgents.mirofish,
+          selectedAgents: selectedAgentIds,
+        }),
       });
       if (!res.ok || !res.body) throw new Error();
 
@@ -830,10 +880,28 @@ export default function VeracityDashboard() {
     <div className={isDark ? '' : 'light'} style={{ display: 'contents' }}>
     <div className="flex h-screen w-full overflow-hidden" style={{ background: isDark ? '#0a0a0a' : '#f9f9f9', color: textMain, fontFamily: 'inherit' }}>
 
-      {/* ══ Mobile sidebar overlay backdrop ══ */}
+      {/* Persistent hamburger toggle so menu control is always visible */}
+      <button
+        type="button"
+        onClick={() => setSidebarOpen(v => !v)}
+        aria-label="Toggle sidebar"
+        className="fixed top-3 left-3 z-[70] h-9 px-2.5 rounded-md flex items-center gap-1.5 transition-colors"
+        style={{
+          border: `1px solid ${borderC}`,
+          background: isDark ? 'rgba(17,17,17,0.95)' : 'rgba(255,255,255,0.95)',
+          color: textMuted,
+          backdropFilter: 'blur(8px)',
+          boxShadow: isDark ? '0 6px 16px rgba(0,0,0,0.4)' : '0 6px 16px rgba(15,23,42,0.12)',
+        }}
+      >
+        {sidebarOpen ? <X size={15} /> : <Menu size={15} />}
+        <span className="text-[11px] font-mono hidden sm:inline">menu</span>
+      </button>
+
+      {/* ══ Sidebar overlay backdrop ══ */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[1px]"
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -841,12 +909,16 @@ export default function VeracityDashboard() {
       {/* ══════════════════════════════════ SIDEBAR ══ */}
       <aside
         className={[
-          'flex-shrink-0 flex flex-col h-full z-50 transition-transform duration-300',
-          'fixed md:static inset-y-0 left-0',
-          'w-[228px]',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+          'flex-shrink-0 flex flex-col h-full z-50 transition-transform duration-300 ease-out',
+          'fixed inset-y-0 left-0',
+          'w-[270px] max-w-[84vw]',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
         ].join(' ')}
-        style={{ background: sidebarBg, borderRight: `1px solid ${borderC}` }}
+        style={{
+          background: `linear-gradient(160deg, ${cardBg} 0%, ${cardBg2} 68%, ${cardBg} 100%)`,
+          borderRight: `1px solid ${borderC}`,
+          boxShadow: isDark ? '0 16px 40px rgba(0,0,0,0.45)' : '0 16px 40px rgba(15,23,42,0.12)',
+        }}
       >
 
         {/* Logo */}
@@ -871,22 +943,41 @@ export default function VeracityDashboard() {
         {/* ─ Agents panel ─ */}
         <div className="px-3 pb-3">
           <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: isDark ? '#0a0a0a' : '#f9f9f9' }}>
-            <div className="flex items-center justify-between px-3 py-2.5" style={{ borderBottom: `1px solid ${borderC}` }}>
-              <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>
-                Agents
-              </span>
-              {isLoading && totalCount > 0 && (
-                <span className="text-[10px] font-mono flex items-center gap-1" style={{ color: textMuted }}>
-                  <RefreshCw size={9} className="animate-spin" /> {completedCount}/{totalCount}
+            <div className="px-3 py-2.5 flex flex-col gap-2" style={{ borderBottom: `1px solid ${borderC}` }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>
+                  Agents
                 </span>
-              )}
-              {hasResult && !isLoading && (
-                <span className="text-[10px] font-mono" style={{ color: '#10b981' }}>{completedCount}/{totalCount}</span>
-              )}
+                {isLoading && totalCount > 0 && (
+                  <span className="text-[10px] font-mono flex items-center gap-1" style={{ color: textMuted }}>
+                    <RefreshCw size={9} className="animate-spin" /> {completedCount}/{totalCount}
+                  </span>
+                )}
+                {hasResult && !isLoading && (
+                  <span className="text-[10px] font-mono" style={{ color: '#10b981' }}>{completedCount}/{totalCount}</span>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-[10px] font-mono" style={{ color: textSubtle }}>
+                <span>{selectedAgentIds.length}/{ALL_DOMAINS.length} selected</span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedAgents(Object.fromEntries(ALL_DOMAINS.map(d => [d, true])) as Record<Domain, boolean>)}
+                  className="px-1.5 py-0.5 rounded border"
+                  style={{ borderColor: borderC }}
+                >
+                  all
+                </button>
+              </div>
             </div>
             <div className="py-1 px-1">
               {ALL_DOMAINS.map(d => (
-                <SidebarAgentRow key={d} domain={d} run={getRunForDomain(d)} />
+                <SidebarAgentRow
+                  key={d}
+                  domain={d}
+                  run={getRunForDomain(d)}
+                  selected={selectedAgents[d]}
+                  onToggle={() => setSelectedAgents(prev => ({ ...prev, [d]: !prev[d] }))}
+                />
               ))}
             </div>
           </div>
@@ -940,32 +1031,6 @@ export default function VeracityDashboard() {
             </div>
           ) : null}
 
-          {/* Mind map */}
-          <div>
-            <div className="flex items-center gap-1.5 px-2 mb-1.5">
-              <GitBranch size={10} style={{ color: textSubtle }} />
-              <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>Mind Map</span>
-            </div>
-            {(() => {
-              const mindMapOutput = currentResult?.orchestratorOutput?.outputs?.find(o => o.artifactType === 'mind-map') as MindMapOutput | undefined;
-              if (mindMapOutput?.branches?.length) {
-                return (
-                  <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
-                    <ArtifactRenderer output={mindMapOutput} product={currentResult?.orchestratorOutput?.product ?? ''} />
-                  </div>
-                );
-              }
-              return (
-                <div className="rounded-lg p-3.5 flex flex-col items-center gap-1.5"
-                  style={{ border: `1px dashed ${borderC}`, background: 'transparent' }}>
-                  <GitBranch size={16} style={{ color: isDark ? '#2a2a2a' : '#ddd' }} />
-                  <p className="text-[11px] font-mono text-center leading-snug" style={{ color: textSubtle }}>
-                    query graph appears after first analysis
-                  </p>
-                </div>
-              );
-            })()}
-          </div>
         </div>
 
         {/* Footer */}
@@ -982,15 +1047,7 @@ export default function VeracityDashboard() {
         <header className="shrink-0 flex items-center gap-2 md:gap-3 px-3 md:px-5 py-3 z-20"
           style={{ background: headerBg, borderBottom: `1px solid ${borderC}`, backdropFilter: 'blur(12px)' }}>
 
-          {/* Mobile hamburger */}
-          <button
-            className="md:hidden w-8 h-8 flex items-center justify-center rounded-md transition-colors shrink-0"
-            style={{ border: `1px solid ${borderC}`, background: isDark ? '#1a1a1a' : '#f0f0f0', color: textMuted }}
-            onClick={() => setSidebarOpen(v => !v)}
-            aria-label="Toggle sidebar"
-          >
-            <Menu size={16} />
-          </button>
+          <div className="w-8 shrink-0" />
 
           {/* Search */}
           <div className="flex-1 flex flex-col gap-2">
@@ -1010,28 +1067,6 @@ export default function VeracityDashboard() {
             )}
 
             <div className="flex items-center gap-2">
-              {/* MiroFish toggle */}
-              <button
-                onClick={() => setMirofishEnabled(v => !v)}
-                disabled={isLoading}
-                title={mirofishEnabled ? 'MiroFish Forecast ON — swarm simulation will run after main results (takes extra time)' : 'Enable MiroFish Forecast — runs swarm-simulation probabilistic forecast after main results'}
-                className="shrink-0 flex items-center gap-1 sm:gap-1.5 h-8 px-2 sm:px-2.5 rounded-lg text-[11px] font-mono font-medium border transition-all disabled:opacity-40 select-none"
-                style={mirofishEnabled ? {
-                  background: 'rgba(6,182,212,0.12)',
-                  color: '#06b6d4',
-                  borderColor: 'rgba(6,182,212,0.4)',
-                } : {
-                  background: 'transparent',
-                  color: textSubtle,
-                  borderColor: borderC,
-                }}
-              >
-                {mirofishRunning
-                  ? <RefreshCw size={11} className="animate-spin" />
-                  : <Fish size={11} />}
-                <span className="hidden sm:inline">{mirofishRunning ? 'forecasting…' : 'MiroFish'}</span>
-              </button>
-
               <div className="relative flex-1 flex items-center rounded-lg transition-all"
                 style={{ border: `1px solid ${borderC}`, background: inputBg }}
                 onFocus={() => {}} >
@@ -1069,6 +1104,13 @@ export default function VeracityDashboard() {
                 </div>
                 <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
               </div>
+
+              {selectedAgents.mirofish && (
+                <span className="shrink-0 hidden lg:flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded"
+                  style={{ color: '#06b6d4', background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)' }}>
+                  {mirofishRunning ? <RefreshCw size={10} className="animate-spin" /> : <Fish size={10} />} forecast
+                </span>
+              )}
             </div>
           </div>
 
@@ -1426,37 +1468,6 @@ export default function VeracityDashboard() {
                 </div>
               </div>
             )}
-
-            {/* ── Inline Execution Plan ─────────────────────────────────
-                The Execution Engine output is the most actionable artifact
-                in the run (variants, hypotheses, campaign brief, deployment
-                timeline), so we surface it inline at the top of the thread
-                instead of hiding it behind the "execution-engine" domain
-                card. Keeps the feedback + refine controls one click away. */}
-            {(() => {
-              const executionOutput = currentResult?.orchestratorOutput?.outputs?.find(
-                o => o.artifactType === 'execution-plan'
-              ) as ExecutionPlanOutput | undefined;
-              if (!executionOutput) return null;
-              if (!executionOutput.variants?.length && !executionOutput.brief?.objective) return null;
-              return (
-                <div className="flex flex-col gap-2">
-                  <div className="flex items-center gap-2">
-                    <Rocket size={12} style={{ color: '#0070f3' }} />
-                    <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textMuted }}>
-                      Execution Plan — Research → Action
-                    </span>
-                  </div>
-                  <ArtifactRenderer
-                    output={executionOutput}
-                    product={currentResult?.orchestratorOutput?.product ?? ''}
-                    sessionId={currentSessionId}
-                    messageId={currentResult?.persistedId ?? null}
-                    onRefined={handleExecutionPlanRefined}
-                  />
-                </div>
-              );
-            })()}
 
             {/* ── Inline Mind Map ── */}
             {(() => {

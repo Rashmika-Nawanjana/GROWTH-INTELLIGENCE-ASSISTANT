@@ -67,6 +67,7 @@ interface OrchestrateOptions {
   injectedContext?: string; // extra context injected into agents and synthesizer (e.g. feedback loop)
   forceExecution?: boolean; // force stage-2 execution even when classifier says false
   followUpMode?: 'full' | 'targeted'; // targeted runs only classifier-selected research domains
+  selectedAgents?: string[]; // optional UI-selected domains from client
 }
 
 async function classifyQuery(
@@ -376,7 +377,9 @@ export async function orchestrate(
   let geminiCallCount = 1;
 
   const { product, competitor, productUrl, competitorUrl, intent, runExecution } = classification;
-  const shouldRunExecution = runExecution || options?.forceExecution === true;
+  const allowedAgents = new Set(options?.selectedAgents?.length ? options.selectedAgents : ALL_AGENTS.map(a => a.id));
+  const executionEnabled = allowedAgents.has('execution-engine');
+  const shouldRunExecution = executionEnabled && (runExecution || options?.forceExecution === true);
 
   // Build prior context string for agents
   const priorContext = history
@@ -406,10 +409,11 @@ export async function orchestrate(
   // Step 2: Select research agents.
   // Main queries default to full sweep; follow-ups may run targeted domains.
   const classifiedDomains = new Set(classification.domains ?? []);
-  const targetedAgents = ALL_AGENTS.filter(agent => classifiedDomains.has(agent.id as IntelligenceDomain));
+  const availableResearchAgents = ALL_AGENTS.filter(agent => allowedAgents.has(agent.id));
+  const targetedAgents = availableResearchAgents.filter(agent => classifiedDomains.has(agent.id as IntelligenceDomain));
   const agentsToRun = options?.followUpMode === 'targeted'
-    ? (targetedAgents.length > 0 ? targetedAgents : ALL_AGENTS)
-    : ALL_AGENTS;
+    ? (targetedAgents.length > 0 ? targetedAgents : availableResearchAgents)
+    : availableResearchAgents;
 
   // Initialise agent run tracking
   const agentRuns: AgentRun[] = agentsToRun.map(a => ({

@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { describe, expect, it } from 'vitest';
 import type { AgentOutput } from '@/lib/agents/types';
-import { buildFeedbackSummary, buildRefinementDeltas } from '@/app/api/refine/route';
+import { buildFeedbackSummary, buildRefinementDeltas } from '@/lib/agents/refine-utils';
 
 function makeOutput(partial: Partial<AgentOutput>): AgentOutput {
   return {
