@@ -6,7 +6,7 @@ import {
   Send, Plus, Search, ChevronRight, RefreshCw, ArrowUpRight,
   LogOut, User, Layers, X, History, GitBranch,
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
-  CheckCircle2, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
+  CheckCircle2, Check, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon, Rocket, Fish,
   ThumbsUp, ThumbsDown, Menu,
 } from 'lucide-react';
