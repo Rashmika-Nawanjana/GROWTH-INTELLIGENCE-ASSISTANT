@@ -107,7 +107,7 @@ Use this ownership model to maximize judging score in the final sprint.
 
 ## The Two-Stage Architecture
 
-### Stage 1: Research (always runs, parallel)
+### Stage 1: Research (always runs, parallel)   
 
 | Agent | Domain | Focus |
 |---|---|---|
