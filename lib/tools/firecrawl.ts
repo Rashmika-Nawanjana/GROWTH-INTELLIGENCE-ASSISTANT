@@ -15,6 +15,12 @@ const EXTRACT_PROMPTS: Record<string, string> = {
   generic: 'Extract key product information, pricing, features, and any competitive claims.',
 };
 
+function delay(ms: number): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(() => resolve(), ms);
+  });
+}
+
 /**
  * Infer extraction profile from URL to use targeted prompts.
  */
@@ -84,14 +90,14 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
 
   if (!result && policy.useFirecrawlStrict && attemptsMade < policy.maxAttempts) {
     // Attempt 2: Strict Firecrawl (for flaky sites like LinkedIn)
-    await new Promise(resolve => setTimeout(resolve, computeRetryDelay(attemptsMade)));
+    await delay(computeRetryDelay(policy, attemptsMade));
     result = await firecrwlFetch(url, extractPrompt, apiKey, true);
     attemptsMade++;
   }
 
   if (!result && attemptsMade < policy.maxAttempts) {
     // Attempt 3: Direct fetch fallback
-    await new Promise(resolve => setTimeout(resolve, computeRetryDelay(attemptsMade)));
+    await delay(computeRetryDelay(policy, attemptsMade));
     result = await (async () => {
       try {
         const res = await fetch(url, {
