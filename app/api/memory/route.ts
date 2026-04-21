@@ -119,6 +119,7 @@ Return JSON with this exact shape:
       msg.includes('429') ||
       lower.includes('resource_exhausted') ||
       lower.includes('rate') ||
+      lower.includes('gemini') ||
       lower.includes('hugging face')
     ) {
       return NextResponse.json({ ok: true, skipped: 'rate_limited' });

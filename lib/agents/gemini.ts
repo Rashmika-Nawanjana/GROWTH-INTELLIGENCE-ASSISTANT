@@ -1,5 +1,9 @@
 const DEFAULT_MODEL = 'gemini-2.5-flash';
 const DEFAULT_EMBEDDING_MODEL = 'gemini-embedding-001';
+// DB column is `vector(768)`. gemini-embedding-001 default is 3072 dims, so
+// we explicitly request 768 via outputDimensionality and re-normalize the
+// returned vector (Gemini docs: normalization is required for <3072 dims).
+const EMBEDDING_DIMENSIONS = Number(process.env.GEMINI_EMBEDDING_DIMENSIONS ?? 768);
 
 type GeminiOptions = {
   model?: string;
@@ -73,6 +77,7 @@ export async function embedTextWithHuggingFace(text: string): Promise<number[] |
       body: JSON.stringify({
         content: { parts: [{ text: trimmed.slice(0, 8000) }] },
         taskType: 'RETRIEVAL_DOCUMENT',
+        outputDimensionality: EMBEDDING_DIMENSIONS,
       }),
     },
   );
@@ -90,7 +95,16 @@ export async function embedTextWithHuggingFace(text: string): Promise<number[] |
   }
 
   const values = parsed.embedding?.values;
-  return Array.isArray(values) ? values : null;
+  if (!Array.isArray(values)) return null;
+
+  // Gemini requires re-normalization when outputDimensionality < 3072.
+  if (EMBEDDING_DIMENSIONS < 3072) {
+    const norm = Math.sqrt(values.reduce((s, v) => s + v * v, 0));
+    if (norm > 0) {
+      return values.map(v => v / norm);
+    }
+  }
+  return values;
 }
 
 // ── JSON helper ───────────────────────────────────────────────────────────────

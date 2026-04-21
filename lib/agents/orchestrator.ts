@@ -36,7 +36,9 @@ const EST_COST_PER_MODEL_CALL =
   EST_INPUT_TOKENS_PER_CALL * COST_PER_INPUT_TOKEN +
   EST_OUTPUT_TOKENS_PER_CALL * COST_PER_OUTPUT_TOKEN;
 
-const HF_MODEL = process.env.HUGGING_FACE_MODEL?.trim() || 'Qwen/Qwen2.5-7B-Instruct';
+// Gemini model is resolved inside lib/agents/gemini.ts via GEMINI_MODEL env
+// var (default: gemini-2.5-flash). We deliberately don't override per-call
+// so that one env change switches every agent at once.
 
 // ── All registered domain agents (6 fast Stage-1 agents) ────────────────────
 const ALL_AGENTS: AgentConfig[] = [
@@ -126,7 +128,6 @@ Set runExecution: false for pure research questions ("compare X vs Y", "what is 
       ? `\n\nAttached images: ${images.length}. Use them as contextual metadata only; the specialist agents inspect the actual image content.`
       : '';
     const raw = await generateHuggingFaceText(prompt + imageNote, {
-      model: HF_MODEL,
       maxNewTokens: 512,
       temperature: 0.1,
     });
@@ -231,7 +232,6 @@ Return ONLY valid JSON (no markdown, no fences):
       ? `\nThe user has also attached ${images.length} image(s). Reference their visual content (text, UI elements, charts, pricing tables, etc.) directly in your answer.`
       : '';
     const raw = await generateHuggingFaceText(prompt + imageNote, {
-      model: HF_MODEL,
       maxNewTokens: 768,
       temperature: 0.2,
     });
@@ -334,7 +334,6 @@ Return ONLY valid JSON (no markdown, no fences):
 
   try {
     const raw = await generateHuggingFaceText(prompt, {
-      model: HF_MODEL,
       maxNewTokens: 1024,
       temperature: 0.15,
     });

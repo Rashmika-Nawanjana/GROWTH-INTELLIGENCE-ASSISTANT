@@ -306,7 +306,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
 
   // If swarm is empty (total failure), return graceful empty
   if (!swarmBundle.totalCount) {
-    return makeEmptyForecast(query, 'Both real and synthetic swarm returned no responses. Check HUGGING_FACE_API_KEY / model quota.');
+    return makeEmptyForecast(query, 'Both real and synthetic swarm returned no responses. Check GEMINI_API_KEY / model quota.');
   }
 
   // Step 4: Synthesise swarm responses → structured forecast (via HF JSON)
