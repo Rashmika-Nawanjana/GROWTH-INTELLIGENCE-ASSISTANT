@@ -1591,10 +1591,20 @@ export default function VeracityDashboard() {
                     <div className="flex flex-wrap items-center gap-2 pt-3" style={{ borderTop: `1px solid ${borderC}` }}>
                       <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>dig deeper</span>
                       {currentResult.suggestions.map(sug => (
-                        <button key={sug} onClick={() => setFollowUpInput(sug)}
-                          className="text-[12px] font-medium flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all"
+                        <button
+                          key={sug}
+                          type="button"
+                          disabled={isFollowingUp || isLoading}
+                          onClick={() => {
+                            followUpEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            // Let the scroll start before kicking off the streamed request so the composer stays in view.
+                            requestAnimationFrame(() => {
+                              void handleFollowUp(sug);
+                            });
+                          }}
+                          className="text-[12px] font-medium flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all disabled:opacity-45 disabled:pointer-events-none"
                           style={{ background: cardBg2, border: `1px solid ${borderC}`, color: textMuted }}
-                          onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = '#0070f3'; b.style.borderColor = 'rgba(0,112,243,0.4)'; b.style.background = 'rgba(0,112,243,0.06)'; }}
+                          onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; if (b.disabled) return; b.style.color = '#0070f3'; b.style.borderColor = 'rgba(0,112,243,0.4)'; b.style.background = 'rgba(0,112,243,0.06)'; }}
                           onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMuted; b.style.borderColor = borderC; b.style.background = cardBg2; }}>
                           {sug} <ChevronRight size={11} />
                         </button>
