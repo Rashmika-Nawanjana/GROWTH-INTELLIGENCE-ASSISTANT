@@ -35,7 +35,7 @@ export function buildFeedbackSummary(
       if (r.click_rate != null) parts.push(`click=${r.click_rate}%`);
       if (r.meetings_booked) parts.push(`meetings=${r.meetings_booked}`);
       if (r.hypothesis_confirmed) parts.push(`hypothesis=${r.hypothesis_confirmed}`);
-      if (r.notes) parts.push(`notes="${String(r.notes).slice(0, 160)}"`);
+      if (r.notes) parts.push(`what_resonated="${String(r.notes).slice(0, 160)}"`);
       lines.push(parts.join(' | '));
     }
 
