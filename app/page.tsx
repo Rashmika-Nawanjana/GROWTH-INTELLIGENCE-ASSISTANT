@@ -3,11 +3,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Send, Plus, Search, ChevronRight, RefreshCw, ArrowUpRight,
-  LogOut, User, Layers, X, History, GitBranch,
+  Send, Plus, Search, ChevronRight, ChevronLeft, RefreshCw, ArrowUpRight,
+  LogOut, User, Layers, X, History, GitBranch, PanelLeftClose, PanelLeft,
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Check, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
-  Activity, Zap, Shield, Sun, Moon, Rocket, Fish,
+  Activity, Zap, Shield, Sun, Moon, Rocket, Fish, CheckCheck, Sparkles,
   ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
@@ -217,37 +217,39 @@ function SidebarAgentRow({
   const status = run?.status ?? 'idle';
 
   return (
-    <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-md transition-colors"
-      style={{ background: selected ? (isDark ? 'rgba(255,255,255,0.02)' : 'rgba(15,23,42,0.03)') : 'transparent' }}>
+    <div className="agent-row-enhanced flex items-center gap-2.5"
+      style={{ background: selected ? (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(15,23,42,0.03)') : 'transparent' }}>
       <button
         type="button"
         onClick={onToggle}
         aria-label={`${selected ? 'Disable' : 'Enable'} ${meta.short}`}
-        className="w-3.5 h-3.5 rounded-sm border shrink-0 flex items-center justify-center"
+        className="w-4 h-4 rounded border shrink-0 flex items-center justify-center transition-all"
         style={{
-          borderColor: selected ? meta.color : (isDark ? '#333' : '#cbd5e1'),
+          borderColor: selected ? meta.color : (isDark ? '#444' : '#cbd5e1'),
           background: selected ? meta.color : 'transparent',
+          boxShadow: selected ? `0 0 6px ${meta.color}33` : 'none',
         }}
       >
-        {selected && <Check size={10} color="#fff" />}
+        {selected && <Check size={10} color="#fff" strokeWidth={3} />}
       </button>
-      <div className="w-3.5 shrink-0 flex justify-center">
-        {status === 'running'   && <RefreshCw size={11} style={{ color: meta.color }} className="animate-spin" />}
-        {status === 'completed' && <CheckCircle2 size={11} style={{ color: '#10b981' }} />}
-        {status === 'failed'    && <AlertCircle size={11} style={{ color: '#ef4444' }} />}
-        {(status === 'idle' || status === 'pending') && <Circle size={11} style={{ color: isDark ? '#333' : '#ccc' }} />}
+      <div className="w-4 shrink-0 flex justify-center">
+        {status === 'running'   && <RefreshCw size={12} style={{ color: meta.color }} className="animate-spin" />}
+        {status === 'completed' && <CheckCircle2 size={12} style={{ color: '#10b981' }} />}
+        {status === 'failed'    && <AlertCircle size={12} style={{ color: '#ef4444' }} />}
+        {(status === 'idle' || status === 'pending') && <Circle size={12} style={{ color: isDark ? '#444' : '#bbb' }} />}
       </div>
-      <span className="text-[12px] flex-1 truncate" style={{
+      <span className="text-[13px] flex-1 truncate" style={{
         textDecoration: selected ? 'none' : 'line-through',
         color: status === 'running'   ? meta.color :
                status === 'completed' ? undefined :
                status === 'failed'    ? '#ef4444' : textSubtle,
-        fontWeight: status === 'running' ? 500 : 400,
+        fontWeight: status === 'running' ? 600 : selected ? 500 : 400,
+        letterSpacing: '-0.01em',
       }}>
         {meta.short}
       </span>
       {status === 'running' && (
-        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded"
+        <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded"
           style={{ color: meta.color, background: meta.bg, border: `1px solid ${meta.border}` }}>
           live
         </span>
@@ -403,9 +405,20 @@ export default function VeracityDashboard() {
   const [selectedAgents, setSelectedAgents] = useState<Record<Domain, boolean>>(() =>
     Object.fromEntries(ALL_DOMAINS.map(d => [d, true])) as Record<Domain, boolean>
   );
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
-  const fileInputRef   = useRef<HTMLInputElement>(null);
-  const followUpEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef    = useRef<HTMLInputElement>(null);
+  const followUpEndRef  = useRef<HTMLDivElement>(null);
+  const textareaRef     = useRef<HTMLTextAreaElement>(null);
+
+  const autoResizeTextarea = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
+  }, []);
+
+  const allSelected = ALL_DOMAINS.every(d => selectedAgents[d]);
 
   const currentResult  = [...messages].reverse().find(m => m.role === 'assistant');
   const recentQueries  = messages.filter(m => m.role === 'user').map(m => m.content);
@@ -905,134 +918,187 @@ export default function VeracityDashboard() {
 
       {/* ══════════════════════════════════ SIDEBAR ══ */}
       <aside
-        className={[
-          'flex-shrink-0 flex flex-col h-full',
-          'relative',
-          'w-[300px]',
-        ].join(' ')}
+        className="sidebar-transition flex-shrink-0 flex flex-col h-full relative"
         style={{
+          width: sidebarCollapsed ? '0px' : '300px',
+          minWidth: sidebarCollapsed ? '0px' : '300px',
           background: `linear-gradient(160deg, ${cardBg} 0%, ${cardBg2} 68%, ${cardBg} 100%)`,
-          borderRight: `1px solid ${borderC}`,
-          boxShadow: isDark ? '0 16px 40px rgba(0,0,0,0.45)' : '0 16px 40px rgba(15,23,42,0.12)',
+          borderRight: sidebarCollapsed ? 'none' : `1px solid ${borderC}`,
+          boxShadow: sidebarCollapsed ? 'none' : (isDark ? '0 16px 40px rgba(0,0,0,0.45)' : '0 16px 40px rgba(15,23,42,0.12)'),
+          overflow: 'hidden',
         }}
       >
 
-        {/* Logo */}
-        <div className="px-5 pt-5 pb-4" style={{ borderBottom: `1px solid ${borderC}` }}>
-          <div className="flex items-center gap-2">
-            <span className="text-base font-bold tracking-tight" style={{ color: textMain }}>Veracity</span>
+        {/* Collapse/Expand toggle */}
+        <button
+          onClick={() => setSidebarCollapsed(prev => !prev)}
+          className="sidebar-collapse-btn"
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          style={{
+            right: sidebarCollapsed ? '-36px' : '-14px',
+          }}
+        >
+          {sidebarCollapsed ? <PanelLeft size={14} style={{ color: textMuted }} /> : <PanelLeftClose size={14} style={{ color: textMuted }} />}
+        </button>
+
+        <div className="flex flex-col h-full" style={{ width: '300px', opacity: sidebarCollapsed ? 0 : 1, transition: 'opacity 0.2s ease' }}>
+
+          {/* Logo */}
+          <div className="px-5 pt-5 pb-4" style={{ borderBottom: `1px solid ${borderC}` }}>
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-gradient-signature">
+                <Sparkles size={14} color="#fff" />
+              </div>
+              <div>
+                <span className="text-base font-bold tracking-tight" style={{ color: textMain }}>Veracity</span>
+                <p className="text-[10px] font-mono leading-none" style={{ color: textSubtle }}>growth intelligence</p>
+              </div>
+            </div>
           </div>
-          <p className="text-[10px] font-mono mt-0.5" style={{ color: textSubtle }}>growth intelligence</p>
-        </div>
 
-        {/* New query */}
-        <div className="px-3 pt-3 pb-2.5">
-          <button
-            onClick={() => { handleNewQuery(); }}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-[13px] font-medium transition-colors focus-ring"
-            style={{ background: isDark ? '#1a1a1a' : '#f0f0f0', border: `1px solid ${borderC}`, color: textMain }}
-          >
-            <Plus size={14} style={{ color: textMuted }} /> New query
-          </button>
-        </div>
+          {/* New query */}
+          <div className="px-3 pt-3 pb-2.5">
+            <button
+              onClick={() => { handleNewQuery(); }}
+              className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-[13px] font-semibold transition-all focus-ring"
+              style={{
+                background: 'linear-gradient(135deg, rgba(0,112,243,0.1), rgba(77,124,255,0.05))',
+                border: `1px solid rgba(0,112,243,0.2)`,
+                color: '#0070f3',
+              }}
+              onMouseEnter={e => { const b = e.currentTarget; b.style.background = 'linear-gradient(135deg, rgba(0,112,243,0.15), rgba(77,124,255,0.08))'; b.style.borderColor = 'rgba(0,112,243,0.35)'; }}
+              onMouseLeave={e => { const b = e.currentTarget; b.style.background = 'linear-gradient(135deg, rgba(0,112,243,0.1), rgba(77,124,255,0.05))'; b.style.borderColor = 'rgba(0,112,243,0.2)'; }}
+            >
+              <Plus size={14} /> New query
+            </button>
+          </div>
 
-        {/* ─ Agents panel ─ */}
-        <div className="px-3 pb-3">
-          <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: isDark ? '#0a0a0a' : '#f9f9f9' }}>
-            <div className="px-3 py-2.5 flex flex-col gap-2" style={{ borderBottom: `1px solid ${borderC}` }}>
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>
-                  Agents
-                </span>
-                {isLoading && totalCount > 0 && (
-                  <span className="text-[10px] font-mono flex items-center gap-1" style={{ color: textMuted }}>
-                    <RefreshCw size={9} className="animate-spin" /> {completedCount}/{totalCount}
+          {/* ─ Agents panel ─ */}
+          <div className="px-3 pb-3">
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${borderC}`, background: isDark ? '#0d0d0d' : '#fafafa' }}>
+              <div className="px-3 py-3 flex flex-col gap-2" style={{ borderBottom: `1px solid ${borderC}` }}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Layers size={12} style={{ color: textSubtle }} />
+                    <span className="text-[11px] font-mono font-bold uppercase tracking-widest" style={{ color: textSubtle }}>
+                      Agents
+                    </span>
+                  </div>
+                  {isLoading && totalCount > 0 && (
+                    <span className="text-[10px] font-mono flex items-center gap-1" style={{ color: textMuted }}>
+                      <RefreshCw size={9} className="animate-spin" /> {completedCount}/{totalCount}
+                    </span>
+                  )}
+                  {hasResult && !isLoading && (
+                    <span className="text-[10px] font-mono font-semibold" style={{ color: '#10b981' }}>{completedCount}/{totalCount}</span>
+                  )}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-mono" style={{ color: textSubtle }}>
+                    {selectedAgentIds.length}/{ALL_DOMAINS.length} selected
                   </span>
-                )}
-                {hasResult && !isLoading && (
-                  <span className="text-[10px] font-mono" style={{ color: '#10b981' }}>{completedCount}/{totalCount}</span>
-                )}
-              </div>
-              <div className="flex items-center justify-between text-[10px] font-mono" style={{ color: textSubtle }}>
-                <span>{selectedAgentIds.length}/{ALL_DOMAINS.length} selected</span>
-                <button
-                  type="button"
-                  onClick={() => setSelectedAgents(Object.fromEntries(ALL_DOMAINS.map(d => [d, true])) as Record<Domain, boolean>)}
-                  className="px-1.5 py-0.5 rounded border"
-                  style={{ borderColor: borderC }}
-                >
-                  all
-                </button>
-              </div>
-            </div>
-            <div className="py-1 px-1">
-              {ALL_DOMAINS.map(d => (
-                <SidebarAgentRow
-                  key={d}
-                  domain={d}
-                  run={getRunForDomain(d)}
-                  selected={selectedAgents[d]}
-                  onToggle={() => setSelectedAgents(prev => ({ ...prev, [d]: !prev[d] }))}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Recent */}
-        <div className="flex-1 overflow-y-auto px-3 pb-3">
-          {loadingSessions ? (
-            <div className="mb-3 px-2">
-              <p className="text-[11px] font-mono" style={{ color: textSubtle }}>loading sessions...</p>
-            </div>
-          ) : sessions.length > 0 ? (
-            <div className="mb-3">
-              <div className="flex items-center gap-1.5 px-2 mb-1.5">
-                <History size={10} style={{ color: textSubtle }} />
-                <span className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>Recent</span>
-              </div>
-              {sessions.slice(0, 8).map((session) => (
-                <div key={session.id} className="relative group flex items-center mb-0.5">
-                  <button onClick={() => { loadSession(session.id); }} title={session.title}
-                    className="flex-1 text-left text-[12px] px-2 py-1.5 rounded-md truncate transition-colors"
-                    style={{ color: currentSessionId === session.id ? textMain : textMuted, paddingRight: '28px' }}
-                    onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMain; b.style.background = isDark ? '#1a1a1a' : '#f0f0f0'; }}
-                    onMouseLeave={e => {
-                      const b = e.currentTarget as HTMLButtonElement;
-                      b.style.color = currentSessionId === session.id ? textMain : textMuted;
-                      b.style.background = 'transparent';
-                    }}
-                  >
-                    {session.title}
-                  </button>
                   <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      await deleteSession(session.id);
-                      if (currentSessionId === session.id) {
-                        handleNewQuery();
-                      }
-                      await refreshSessions();
+                    type="button"
+                    onClick={() => {
+                      const newState = allSelected
+                        ? Object.fromEntries(ALL_DOMAINS.map(d => [d, false])) as Record<Domain, boolean>
+                        : Object.fromEntries(ALL_DOMAINS.map(d => [d, true])) as Record<Domain, boolean>;
+                      setSelectedAgents(newState);
                     }}
-                    className="absolute right-1 w-6 h-6 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
-                    style={{ color: '#ef4444' }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.1)'; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
-                    title="Delete session"
+                    className={`select-all-btn font-mono flex items-center gap-1 ${allSelected ? 'all-selected' : ''}`}
                   >
-                    <Trash2 size={12} />
+                    <CheckCheck size={10} />
+                    {allSelected ? 'Deselect All' : 'Select All'}
                   </button>
                 </div>
-              ))}
+              </div>
+              <div className="py-1.5 px-1.5 flex flex-col gap-0.5">
+                {ALL_DOMAINS.map(d => (
+                  <SidebarAgentRow
+                    key={d}
+                    domain={d}
+                    run={getRunForDomain(d)}
+                    selected={selectedAgents[d]}
+                    onToggle={() => setSelectedAgents(prev => ({ ...prev, [d]: !prev[d] }))}
+                  />
+                ))}
+              </div>
             </div>
-          ) : null}
+          </div>
 
-        </div>
+          {/* Recent sessions */}
+          <div className="flex-1 overflow-y-auto px-3 pb-3">
+            <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${borderC}`, background: isDark ? '#0d0d0d' : '#fafafa' }}>
+              <div className="px-3 py-2.5 flex items-center justify-between" style={{ borderBottom: `1px solid ${borderC}` }}>
+                <div className="flex items-center gap-1.5">
+                  <History size={12} style={{ color: textSubtle }} />
+                  <span className="text-[11px] font-mono font-bold uppercase tracking-widest" style={{ color: textSubtle }}>Recent</span>
+                </div>
+                {sessions.length > 0 && (
+                  <span className="text-[10px] font-mono" style={{ color: textSubtle }}>{sessions.length}</span>
+                )}
+              </div>
+              <div className="py-1.5 px-1.5">
+                {loadingSessions ? (
+                  <div className="px-2 py-3 flex flex-col gap-2">
+                    <div className="h-3 rounded skeleton w-4/5" />
+                    <div className="h-3 rounded skeleton w-3/5" style={{ animationDelay: '0.2s' }} />
+                    <div className="h-3 rounded skeleton w-2/3" style={{ animationDelay: '0.4s' }} />
+                  </div>
+                ) : sessions.length > 0 ? (
+                  <div className="flex flex-col gap-0.5">
+                    {sessions.slice(0, 10).map((session) => (
+                      <div
+                        key={session.id}
+                        className={`session-item group relative flex items-center cursor-pointer ${currentSessionId === session.id ? 'active' : ''}`}
+                        onClick={() => { loadSession(session.id); }}
+                      >
+                        <div className="flex-1 min-w-0 pr-6">
+                          <p className="text-[12px] font-medium truncate" style={{
+                            color: currentSessionId === session.id ? textMain : textMuted,
+                          }}>
+                            {session.title}
+                          </p>
+                          {session.created_at && (
+                            <p className="text-[9px] font-mono mt-0.5" style={{ color: textSubtle }}>
+                              {new Date(session.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </p>
+                          )}
+                        </div>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            await deleteSession(session.id);
+                            if (currentSessionId === session.id) {
+                              handleNewQuery();
+                            }
+                            await refreshSessions();
+                          }}
+                          className="absolute right-1.5 w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all z-10"
+                          style={{ color: '#ef4444' }}
+                          onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(239,68,68,0.1)'; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
+                          title="Delete session"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-3 py-4 text-center">
+                    <p className="text-[11px]" style={{ color: textSubtle }}>No sessions yet</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
 
-        {/* Footer */}
-        <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: `1px solid ${borderC}` }}>
-          <div className="live-dot" />
-          <span className="text-[10px] font-mono" style={{ color: textSubtle }}>live · sourced · grounded</span>
+          {/* Footer */}
+          <div className="px-4 py-3 flex items-center gap-2" style={{ borderTop: `1px solid ${borderC}` }}>
+            <div className="live-dot" />
+            <span className="text-[10px] font-mono" style={{ color: textSubtle }}>live · sourced · grounded</span>
+          </div>
         </div>
       </aside>
 
@@ -1040,113 +1106,127 @@ export default function VeracityDashboard() {
       <div className="flex-1 flex flex-col h-full overflow-hidden">
 
         {/* ── Header ── */}
-        <header className="shrink-0 flex items-center gap-2 md:gap-3 px-3 md:px-5 py-3 z-20"
+        <header className="shrink-0 flex flex-col gap-0 z-20"
           style={{ background: headerBg, borderBottom: `1px solid ${borderC}`, backdropFilter: 'blur(12px)' }}>
 
-          {/* Search */}
-          <div className="flex-1 flex flex-col gap-2">
-            {attachedImages.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {attachedImages.map((img, i) => (
-                  <div key={i} className="relative group">
-                    <img src={img.dataUrl} alt={img.name} className="h-8 w-8 object-cover rounded-md" style={{ border: `1px solid ${borderC}` }} />
-                    <button onClick={() => setAttachedImages(prev => prev.filter((_, j) => j !== i))}
-                      className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                      style={{ background: '#333', color: '#fff' }}>
-                      <X size={8} />
-                    </button>
-                  </div>
-                ))}
+          {/* Top bar with stats & user */}
+          <div className="flex items-center justify-between gap-3 px-4 md:px-6 py-2">
+            {sidebarCollapsed && (
+              <div className="flex items-center gap-2 mr-2">
+                <div className="w-6 h-6 rounded-md flex items-center justify-center bg-gradient-signature">
+                  <Sparkles size={11} color="#fff" />
+                </div>
+                <span className="text-sm font-bold tracking-tight" style={{ color: textMain }}>Veracity</span>
               </div>
             )}
-
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1 flex items-center rounded-lg transition-all"
-                style={{ border: `1px solid ${borderC}`, background: inputBg }}
-                onFocus={() => {}} >
-                <Search size={13} className="absolute left-3 sm:left-3.5 pointer-events-none" style={{ color: textSubtle }} />
-                <input
-                  type="text"
-                  value={inputValue}
-                  onChange={e => setInputValue(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && handleSend(inputValue)}
-                  placeholder="Ask a growth intelligence question…"
-                  className="w-full h-10 pl-8 sm:pl-9 pr-[72px] sm:pr-[88px] text-[13px] sm:text-[14px] bg-transparent outline-none"
-                  style={{ color: textMain }}
-                  disabled={isLoading}
-                />
-                <div className="absolute right-2 flex items-center gap-1">
-                  <button onClick={() => fileInputRef.current?.click()}
-                    className="w-7 h-7 flex items-center justify-center rounded-md transition-colors"
-                    style={{ color: textSubtle }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = textMain; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = textSubtle; }}>
-                    <Paperclip size={13} />
-                  </button>
-                  <button
-                    onClick={() => handleSend(inputValue)}
-                    disabled={(!inputValue.trim() && attachedImages.length === 0) || isLoading}
-                    className="flex items-center justify-center w-7 h-7 rounded-md text-[13px] font-medium transition-all disabled:opacity-40"
-                    style={{ background: '#0070f3', color: '#fff' }}
-                    onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0060df'; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0070f3'; }}
-                  >
-                  {isLoading
-                    ? <RefreshCw size={13} className="animate-spin" />
-                    : <Send size={13} />}
-                  </button>
-                </div>
-                <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
-              </div>
-
+            <div className="flex items-center gap-3 text-[11px] font-mono" style={{ color: textMuted }}>
+              <span className="flex items-center gap-1.5"><Activity size={11} style={{ color: textSubtle }} /> &lt;5 min</span>
+              <span className="hidden sm:flex items-center gap-1.5"><Shield size={11} style={{ color: textSubtle }} /> sourced</span>
+              <span className="hidden sm:flex items-center gap-1.5"><Zap size={11} style={{ color: textSubtle }} /> 16+ signals</span>
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
               {selectedAgents.mirofish && (
                 <span className="shrink-0 hidden lg:flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded"
                   style={{ color: '#06b6d4', background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)' }}>
                   {mirofishRunning ? <RefreshCw size={10} className="animate-spin" /> : <Fish size={10} />} forecast
                 </span>
               )}
+              <button
+                onClick={toggleTheme}
+                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors shrink-0"
+                style={{ border: `1px solid ${borderC}`, background: isDark ? '#1a1a1a' : '#f0f0f0', color: textMuted }}
+                title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              >
+                {isDark ? <Sun size={14} /> : <Moon size={14} />}
+              </button>
+              <div className="relative shrink-0">
+                <button onClick={() => setShowUserMenu(v => !v)}
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold transition-opacity hover:opacity-80"
+                  style={{ background: '#0070f3', color: '#fff' }}>
+                  {userEmail ? userEmail[0].toUpperCase() : <User size={13} />}
+                </button>
+                {showUserMenu && (
+                  <div className="absolute right-0 top-10 w-52 rounded-xl py-1 z-50"
+                    style={{ background: isDark ? '#111' : '#fff', border: `1px solid ${borderC}`, boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.12)' }}>
+                    {userEmail && (
+                      <p className="px-3 py-2 text-[12px] font-mono truncate" style={{ color: textMuted, borderBottom: `1px solid ${borderC}` }}>{userEmail}</p>
+                    )}
+                    <button onClick={handleSignOut}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left transition-colors"
+                      style={{ color: textMuted }}
+                      onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMain; b.style.background = isDark ? '#1a1a1a' : '#f4f4f4'; }}
+                      onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMuted; b.style.background = 'transparent'; }}>
+                      <LogOut size={13} style={{ color: textSubtle }} /> Sign out
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Stats */}
-          <div className="hidden xl:flex items-center gap-4 text-[11px] font-mono" style={{ color: textMuted }}>
-            <span className="flex items-center gap-1.5"><Activity size={11} style={{ color: textSubtle }} /> &lt;5 min</span>
-            <span className="flex items-center gap-1.5"><Shield size={11} style={{ color: textSubtle }} /> sourced</span>
-            <span className="flex items-center gap-1.5"><Zap size={11} style={{ color: textSubtle }} /> 16+ signals</span>
-          </div>
-
-          {/* Theme toggle */}
-          <button
-            onClick={toggleTheme}
-            className="w-8 h-8 rounded-md flex items-center justify-center transition-colors shrink-0"
-            style={{ border: `1px solid ${borderC}`, background: isDark ? '#1a1a1a' : '#f0f0f0', color: textMuted }}
-            title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {isDark ? <Sun size={14} /> : <Moon size={14} />}
-          </button>
-
-          {/* User */}
-          <div className="relative shrink-0">
-            <button onClick={() => setShowUserMenu(v => !v)}
-              className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold transition-opacity hover:opacity-80"
-              style={{ background: '#0070f3', color: '#fff' }}>
-              {userEmail ? userEmail[0].toUpperCase() : <User size={13} />}
-            </button>
-            {showUserMenu && (
-              <div className="absolute right-0 top-10 w-52 rounded-lg py-1 z-50"
-                style={{ background: isDark ? '#111' : '#fff', border: `1px solid ${borderC}`, boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 24px rgba(0,0,0,0.12)' }}>
-                {userEmail && (
-                  <p className="px-3 py-2 text-[12px] font-mono truncate" style={{ color: textMuted, borderBottom: `1px solid ${borderC}` }}>{userEmail}</p>
-                )}
-                <button onClick={handleSignOut}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-[13px] text-left transition-colors"
-                  style={{ color: textMuted }}
-                  onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMain; b.style.background = isDark ? '#1a1a1a' : '#f4f4f4'; }}
-                  onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMuted; b.style.background = 'transparent'; }}>
-                  <LogOut size={13} style={{ color: textSubtle }} /> Sign out
-                </button>
+          {/* Search bar — prominent, scrollable textarea */}
+          <div className="px-4 md:px-6 pb-4 pt-1">
+            {attachedImages.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {attachedImages.map((img, i) => (
+                  <div key={i} className="relative group">
+                    <img src={img.dataUrl} alt={img.name} className="h-10 w-10 object-cover rounded-lg" style={{ border: `1px solid ${borderC}` }} />
+                    <button onClick={() => setAttachedImages(prev => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      style={{ background: isDark ? '#333' : '#666', color: '#fff' }}>
+                      <X size={9} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
+
+            <div className="query-bar-glow relative flex items-end rounded-xl transition-all"
+              style={{
+                border: `1.5px solid ${borderC}`,
+                background: isDark ? 'rgba(22,22,22,0.9)' : 'rgba(255,255,255,0.95)',
+                boxShadow: isDark ? '0 2px 12px rgba(0,0,0,0.3)' : '0 2px 12px rgba(0,0,0,0.06)',
+              }}>
+              <Search size={16} className="absolute left-4 top-3.5 pointer-events-none" style={{ color: textSubtle }} />
+              <textarea
+                ref={textareaRef}
+                value={inputValue}
+                onChange={e => { setInputValue(e.target.value); autoResizeTextarea(); }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend(inputValue);
+                  }
+                }}
+                placeholder="Ask a growth intelligence question…"
+                className="query-textarea w-full pl-11 pr-[90px] py-3 bg-transparent outline-none font-sans"
+                style={{ color: textMain }}
+                disabled={isLoading}
+                rows={1}
+              />
+              <div className="absolute right-3 bottom-2.5 flex items-center gap-1.5">
+                <button onClick={() => fileInputRef.current?.click()}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors"
+                  style={{ color: textSubtle }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = textMain; (e.currentTarget as HTMLButtonElement).style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = textSubtle; (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
+                  <Paperclip size={15} />
+                </button>
+                <button
+                  onClick={() => handleSend(inputValue)}
+                  disabled={(!inputValue.trim() && attachedImages.length === 0) || isLoading}
+                  className="flex items-center justify-center w-8 h-8 rounded-lg text-[13px] font-medium transition-all disabled:opacity-30"
+                  style={{ background: '#0070f3', color: '#fff' }}
+                  onMouseEnter={e => { if (!(e.currentTarget as HTMLButtonElement).disabled) (e.currentTarget as HTMLButtonElement).style.background = '#0060df'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = '#0070f3'; }}
+                >
+                  {isLoading
+                    ? <RefreshCw size={14} className="animate-spin" />
+                    : <Send size={14} />}
+                </button>
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
+            </div>
           </div>
         </header>
 
@@ -1198,43 +1278,44 @@ export default function VeracityDashboard() {
 
             {/* ── Agent Tabs ── */}
             {(currentResult || isLoading) && (
-              <div className="rounded-xl p-4" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
-                <div className="flex items-center justify-between mb-4 gap-3">
+              <div className="rounded-xl p-5" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+                <div className="flex items-center justify-between mb-5 gap-3">
                   <div className="flex flex-col gap-2 min-w-0 flex-1">
-                    <p className="text-[14px] font-semibold truncate" style={{ color: textMain }}>
+                    <p className="text-[16px] font-bold tracking-tight" style={{ color: textMain }}>
                       {recentQueries[recentQueries.length - 1] ?? 'analysing…'}
                     </p>
                     {messages.filter(m => m.role === 'user').pop()?.images && (
                       <div className="flex flex-wrap gap-2">
                         {messages.filter(m => m.role === 'user').pop()?.images?.map((img, i) => (
-                          <img key={i} src={img.dataUrl} alt={img.name} className="h-10 w-10 object-cover rounded-md" style={{ border: `1px solid ${borderC}` }} />
+                          <img key={i} src={img.dataUrl} alt={img.name} className="h-10 w-10 object-cover rounded-lg" style={{ border: `1px solid ${borderC}` }} />
                         ))}
                       </div>
                     )}
                   </div>
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex gap-1">
+                  <div className="flex items-center gap-3">
+                    <div className="flex gap-1.5">
                       {ALL_DOMAINS.map(d => {
                         const s = getRunForDomain(d)?.status ?? 'idle';
                         const m = DOMAIN_META[d];
                         return (
-                          <div key={d} className="w-2 h-2 rounded-full transition-all"
+                          <div key={d} className="w-2.5 h-2.5 rounded-full transition-all"
                             style={{
                               background: s === 'completed' ? m.color : s === 'running' ? m.color : (isDark ? '#2a2a2a' : '#ddd'),
-                              opacity: s === 'running' ? 1 : s === 'completed' ? 1 : 0.5,
+                              opacity: s === 'running' ? 1 : s === 'completed' ? 1 : 0.4,
+                              boxShadow: s === 'running' ? `0 0 6px ${m.color}55` : 'none',
                             }}
                           />
                         );
                       })}
                     </div>
                     {totalCount > 0 && (
-                      <span className="text-[11px] font-mono" style={{ color: textSubtle }}>
+                      <span className="text-[11px] font-mono font-semibold" style={{ color: textSubtle }}>
                         {completedCount}/{Math.max(totalCount, 6)}
                       </span>
                     )}
                   </div>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2.5">
                   {visibleTabDomains.map(domain => {
                     const run = getRunForDomain(domain);
                     const output = getOutputForDomain(domain);
@@ -1245,22 +1326,27 @@ export default function VeracityDashboard() {
                       <button
                         key={domain}
                         onClick={() => setExpandedDomain(domain)}
-                        className="px-3 py-2 rounded-md text-left transition-all border min-w-[138px]"
+                        className="px-3.5 py-2.5 rounded-lg text-left transition-all border min-w-[140px]"
                         style={{
                           borderColor: isActive ? meta.color : borderC,
                           background: isActive ? (isDark ? meta.bg : meta.bgLight) : cardBg2,
-                          boxShadow: isActive ? `0 0 0 1px ${meta.color}22` : 'none',
+                          boxShadow: isActive ? `0 0 0 1px ${meta.color}33, 0 4px 12px ${meta.color}15` : 'none',
                         }}
                       >
                         <div className="flex items-center justify-between gap-2">
-                          <span className="text-[11px] font-mono font-semibold uppercase tracking-wide" style={{ color: isActive ? meta.color : textSubtle }}>
-                            {meta.short}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span style={{ color: isActive ? meta.color : textSubtle }}>{meta.icon}</span>
+                            <span className="text-[11px] font-mono font-bold uppercase tracking-wide" style={{ color: isActive ? meta.color : textMuted }}>
+                              {meta.short}
+                            </span>
+                          </div>
                           {status === 'running' && <RefreshCw size={11} className="animate-spin" style={{ color: meta.color }} />}
-                          {status === 'completed' && <CheckCircle2 size={11} style={{ color: '#10b981' }} />}
+                          {status === 'completed' && <CheckCircle2 size={12} style={{ color: '#10b981' }} />}
                           {status === 'failed' && <AlertCircle size={11} style={{ color: '#ef4444' }} />}
                         </div>
-                        <p className="text-[11px] mt-1" style={{ color: textMuted }}>
+                        <p className="text-[10px] font-mono mt-1.5 uppercase tracking-wider font-medium" style={{
+                          color: status === 'completed' ? '#10b981' : status === 'running' ? meta.color : textSubtle,
+                        }}>
                           {status}
                         </p>
                       </button>
@@ -1272,30 +1358,37 @@ export default function VeracityDashboard() {
 
             {/* ── Expanded domain ── */}
             {expandedDomain && (
-              <div className="rounded-lg overflow-hidden" style={{
-                border: `1px solid ${DOMAIN_META[expandedDomain].border}`,
+              <div className="rounded-xl overflow-hidden" style={{
+                border: `1.5px solid ${DOMAIN_META[expandedDomain].border}`,
                 background: cardBg,
-                boxShadow: `0 0 0 1px ${DOMAIN_META[expandedDomain].color}1a`,
+                boxShadow: `0 0 0 1px ${DOMAIN_META[expandedDomain].color}1a, 0 8px 24px ${DOMAIN_META[expandedDomain].color}08`,
               }}>
-                <div className="flex items-center justify-between px-5 py-3.5"
+                <div className="flex items-center justify-between px-5 py-4"
                   style={{ borderBottom: `1px solid ${borderC}`, background: isDark ? DOMAIN_META[expandedDomain].bg : DOMAIN_META[expandedDomain].bgLight }}>
-                  <div className="flex items-center gap-2.5">
-                    <span style={{ color: DOMAIN_META[expandedDomain].color }}>{DOMAIN_META[expandedDomain].icon}</span>
-                    <span className="text-[14px] font-semibold" style={{ color: textMain }}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-lg flex items-center justify-center"
+                      style={{ background: DOMAIN_META[expandedDomain].bg, border: `1px solid ${DOMAIN_META[expandedDomain].border}` }}>
+                      <span style={{ color: DOMAIN_META[expandedDomain].color }}>{DOMAIN_META[expandedDomain].icon}</span>
+                    </div>
+                    <span className="text-[15px] font-bold tracking-tight" style={{ color: textMain }}>
                       {DOMAIN_META[expandedDomain].label}
                     </span>
                     {expandedOutput && <ConfidenceBadge level={expandedOutput.confidence} />}
+                    <span className="text-[9px] font-mono font-semibold uppercase tracking-widest px-2 py-0.5 rounded-full"
+                      style={{ color: DOMAIN_META[expandedDomain].color, background: DOMAIN_META[expandedDomain].bg, border: `1px solid ${DOMAIN_META[expandedDomain].border}` }}>
+                      live
+                    </span>
                   </div>
                   <button onClick={() => setExpandedDomain(null)}
-                    className="p-1.5 rounded-md transition-colors"
+                    className="p-1.5 rounded-lg transition-colors"
                     style={{ color: textMuted }}
                     onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = isDark ? '#1a1a1a' : '#f0f0f0'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
-                    <X size={14} />
+                    <X size={15} />
                   </button>
                 </div>
 
-                <div className="p-6 lg:p-8 flex flex-col gap-6">
+                <div className="p-6 lg:p-8 flex flex-col gap-7">
                   {expandedOutput ? (
                     <ArtifactRenderer
                       output={expandedOutput}
@@ -1306,7 +1399,7 @@ export default function VeracityDashboard() {
                     />
                   ) : (
                     <div className="rounded-xl p-6" style={{ border: `1px solid ${borderC}`, background: cardBg2 }}>
-                      <p className="text-sm font-semibold mb-2" style={{ color: textMain }}>
+                      <p className="text-sm font-bold mb-2" style={{ color: textMain }}>
                         {DOMAIN_META[expandedDomain].short} details are loading
                       </p>
                       <p className="text-[13px] leading-relaxed" style={{ color: textMuted }}>
@@ -1316,12 +1409,15 @@ export default function VeracityDashboard() {
                   )}
 
                   {expandedOutput && expandedOutput.facts.filter(f => !f.startsWith('[')).length > 0 && (
-                    <div>
-                      <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>Key Facts</p>
-                      <ul className="flex flex-col gap-2.5">
+                    <div className="rounded-lg p-5" style={{ background: isDark ? 'rgba(16,185,129,0.04)' : 'rgba(16,185,129,0.03)', border: `1px solid rgba(16,185,129,0.15)` }}>
+                      <p className="text-[11px] font-mono font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: '#10b981' }}>
+                        <CheckCircle2 size={13} /> Key Facts
+                      </p>
+                      <ul className="flex flex-col gap-3">
                         {expandedOutput.facts.filter(f => !f.startsWith('[')).map((f, i) => (
-                          <li key={i} className="flex items-start gap-2.5 fact-item">
-                            <span className="font-mono mt-0.5 shrink-0" style={{ color: '#10b981' }}>✓</span>{f}
+                          <li key={i} className="flex items-start gap-3 text-[13.5px] leading-relaxed" style={{ color: isDark ? '#d4d4d4' : '#404040' }}>
+                            <span className="font-mono mt-0.5 shrink-0 font-bold" style={{ color: '#10b981' }}>✓</span>
+                            <span>{f}</span>
                           </li>
                         ))}
                       </ul>
@@ -1329,12 +1425,15 @@ export default function VeracityDashboard() {
                   )}
 
                   {expandedOutput && expandedOutput.interpretation.length > 0 && (
-                    <div>
-                      <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>Analysis</p>
-                      <ul className="flex flex-col gap-2.5">
+                    <div className="rounded-lg p-5" style={{ background: isDark ? 'rgba(0,112,243,0.04)' : 'rgba(0,112,243,0.03)', border: `1px solid rgba(0,112,243,0.12)` }}>
+                      <p className="text-[11px] font-mono font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: '#0070f3' }}>
+                        <Activity size={13} /> Analysis
+                      </p>
+                      <ul className="flex flex-col gap-3">
                         {expandedOutput.interpretation.map((interp, i) => (
-                          <li key={i} className="flex items-start gap-2.5 fact-item">
-                            <span className="font-mono mt-0.5 shrink-0" style={{ color: textSubtle }}>›</span>{interp}
+                          <li key={i} className="flex items-start gap-3 text-[13.5px] leading-relaxed" style={{ color: isDark ? '#d4d4d4' : '#404040' }}>
+                            <span className="font-mono mt-0.5 shrink-0 font-bold" style={{ color: '#0070f3' }}>›</span>
+                            <span>{interp}</span>
                           </li>
                         ))}
                       </ul>
@@ -1461,37 +1560,48 @@ export default function VeracityDashboard() {
 
                   {currentResult.orchestratorOutput?.outputs?.length ? (
                     <div>
-                      <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>
-                        Domain Highlights
+                      <p className="text-[11px] font-mono font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: textSubtle }}>
+                        <Layers size={13} /> Domain Highlights
                       </p>
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         {currentResult.orchestratorOutput.outputs
                           .filter(o => o.artifactType !== 'mind-map')
                           .slice(0, 6)
-                          .map((o, i) => (
-                            <div key={`${o.domain}-${i}`} className="rounded-lg p-4" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
-                              <div className="flex items-center justify-between mb-2">
-                                <span className="text-[11px] font-mono font-semibold uppercase tracking-wide" style={{ color: DOMAIN_META[o.domain as Domain]?.color ?? textSubtle }}>
-                                  {DOMAIN_META[o.domain as Domain]?.short ?? o.domain}
-                                </span>
-                                <ConfidenceBadge level={o.confidence} />
-                              </div>
-                              <p className="text-[13px] leading-relaxed" style={{ color: textMuted }}>
-                                {o.interpretation?.[0] || o.facts?.[0] || 'No highlight available.'}
-                              </p>
-                              {o.sources?.length ? (
-                                <div className="flex flex-wrap gap-1.5 mt-3 pt-2" style={{ borderTop: `1px solid ${borderC}` }}>
-                                  {o.sources.slice(0, 2).map(source => (
-                                    <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer"
-                                      className="text-[10px] font-mono px-2 py-0.5 rounded-md transition-colors"
-                                      style={{ color: textMuted, background: cardBg, border: `1px solid ${borderC}` }}>
-                                      {source.title} <ArrowUpRight size={8} />
-                                    </a>
-                                  ))}
+                          .map((o, i) => {
+                            const domainMeta = DOMAIN_META[o.domain as Domain];
+                            return (
+                              <div key={`${o.domain}-${i}`} className="rounded-xl p-4 transition-all"
+                                style={{
+                                  background: cardBg2,
+                                  border: `1px solid ${borderC}`,
+                                  borderLeft: `3px solid ${domainMeta?.color ?? borderC}`,
+                                }}>
+                                <div className="flex items-center justify-between mb-2.5">
+                                  <div className="flex items-center gap-1.5">
+                                    {domainMeta && <span style={{ color: domainMeta.color }}>{domainMeta.icon}</span>}
+                                    <span className="text-[12px] font-mono font-bold uppercase tracking-wide" style={{ color: domainMeta?.color ?? textSubtle }}>
+                                      {domainMeta?.short ?? o.domain}
+                                    </span>
+                                  </div>
+                                  <ConfidenceBadge level={o.confidence} />
                                 </div>
-                              ) : null}
-                            </div>
-                          ))}
+                                <p className="text-[13px] leading-relaxed font-medium" style={{ color: isDark ? '#d4d4d4' : '#333' }}>
+                                  {o.interpretation?.[0] || o.facts?.[0] || 'No highlight available.'}
+                                </p>
+                                {o.sources?.length ? (
+                                  <div className="flex flex-wrap gap-1.5 mt-3 pt-2.5" style={{ borderTop: `1px solid ${borderC}` }}>
+                                    {o.sources.slice(0, 2).map(source => (
+                                      <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer"
+                                        className="flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-md transition-colors"
+                                        style={{ color: textMuted, background: cardBg, border: `1px solid ${borderC}` }}>
+                                        {source.title} <ArrowUpRight size={8} />
+                                      </a>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            );
+                          })}
                       </div>
                     </div>
                   ) : null}
@@ -1499,8 +1609,8 @@ export default function VeracityDashboard() {
                   {/* Recommendations */}
                   {currentResult.recommendations && currentResult.recommendations.length > 0 && (
                     <div>
-                      <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>
-                        Strategic Recommendations
+                      <p className="text-[11px] font-mono font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: textSubtle }}>
+                        <Rocket size={13} /> Strategic Recommendations
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {currentResult.recommendations.map((rec: any, i: number) => (

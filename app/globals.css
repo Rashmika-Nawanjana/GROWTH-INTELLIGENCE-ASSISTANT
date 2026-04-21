@@ -300,3 +300,140 @@ button, a {
     font-size: 18px;
   }
 }
+
+/* ─── Enhanced query bar ─────────────────────────────────── */
+.query-bar-glow {
+  position: relative;
+}
+
+.query-bar-glow::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 14px;
+  padding: 1px;
+  background: linear-gradient(135deg, rgba(0,112,243,0.4), rgba(77,124,255,0.2), rgba(99,102,241,0.3));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.query-bar-glow:focus-within::before {
+  opacity: 1;
+}
+
+.query-bar-glow:focus-within {
+  box-shadow: 0 0 20px rgba(0,112,243,0.12), 0 0 40px rgba(77,124,255,0.06);
+}
+
+.query-textarea {
+  font-size: 15px;
+  line-height: 1.5;
+  resize: none;
+  min-height: 48px;
+  max-height: 180px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.query-textarea::-webkit-scrollbar {
+  width: 3px;
+}
+.query-textarea::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 99px;
+}
+
+/* ─── Sidebar collapse transition ────────────────────────── */
+.sidebar-collapse-btn {
+  position: absolute;
+  top: 50%;
+  right: -14px;
+  transform: translateY(-50%);
+  z-index: 30;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.sidebar-collapse-btn:hover {
+  background: var(--card-hover);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
+}
+
+.sidebar-transition {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+}
+
+/* ─── Agent row enhanced ─────────────────────────────────── */
+.agent-row-enhanced {
+  transition: all 0.15s ease;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+.agent-row-enhanced:hover {
+  background: rgba(0,112,243,0.04);
+}
+
+.light .agent-row-enhanced:hover {
+  background: rgba(0,112,243,0.03);
+}
+
+/* ─── Recent sessions enhanced ───────────────────────────── */
+.session-item {
+  border-radius: 8px;
+  padding: 8px 10px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.session-item:hover {
+  border-color: var(--border);
+  background: var(--surface-raised);
+}
+
+.session-item.active {
+  border-color: rgba(0,112,243,0.3);
+  background: rgba(0,112,243,0.05);
+}
+
+.light .session-item:hover {
+  background: var(--surface-raised);
+}
+
+/* ─── Select All button ──────────────────────────────────── */
+.select-all-btn {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground-subtle);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.select-all-btn:hover {
+  border-color: rgba(0,112,243,0.4);
+  color: var(--accent);
+  background: rgba(0,112,243,0.06);
+}
+
+.select-all-btn.all-selected {
+  border-color: rgba(16,185,129,0.3);
+  color: #10b981;
+  background: rgba(16,185,129,0.06);
+}
