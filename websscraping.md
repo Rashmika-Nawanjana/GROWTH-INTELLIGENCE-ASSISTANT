@@ -158,7 +158,6 @@ console.log('The title of this blog post is "%s".', fullTitle);
 await browser.close();
 
 3:
-token = 76bc085eb1e14b77835a1880d2f02490e0083ed2f14
 Scrape.do provides unblocked access to public web data at scale by:
 
 Avoiding all anti-bot, WAF, and CAPTCHA through custom bypass solutions.
