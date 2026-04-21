@@ -20,63 +20,111 @@ export interface QueryPlanContext {
   audience?: string;    // inferred audience (e.g. "Series A founders")
 }
 
+function currentYears(): { year: number; nextYear: number } {
+  const year = new Date().getFullYear();
+  return { year, nextYear: year + 1 };
+}
+
+function compactJoin(parts: Array<string | undefined | null>): string {
+  return parts
+    .filter((part): part is string => typeof part === 'string' && part.trim().length > 0)
+    .join(' ');
+}
+
+function normalizeCategory(ctx: QueryPlanContext): string {
+  return ctx.category?.trim() || `${ctx.product} category`;
+}
+
+function normalizeCompetitor(ctx: QueryPlanContext): string {
+  return ctx.competitor?.trim() || 'top competitors';
+}
+
 // Domain-specific query templates
 const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBundle> = {
-  'market-trends': (ctx) => ({
-    broad: `${ctx.product} market trends 2025 2026 growth industry`,
-    targeted: `site:reddit.com OR site:indiehackers.com "${ctx.product}" trending category growth`,
-    hypothesis: `"${ctx.product}" OR "${ctx.category}" (accelerating OR consolidating OR emerging) adoption`,
+  'market-trends': (ctx) => {
+    const { year, nextYear } = currentYears();
+    const category = normalizeCategory(ctx);
+    return {
+    broad: `${ctx.product} market trends ${year} ${nextYear} growth industry`,
+    targeted: `site:reddit.com OR site:indiehackers.com "${ctx.product}" "${category}" trending growth`,
+    hypothesis: `"${ctx.product}" OR "${category}" (accelerating OR consolidating OR emerging) adoption`,
     keywords: ['growth', 'trends', 'adoption', 'market', 'category', 'revenue'],
-  }),
+  };
+  },
 
-  competitive: (ctx) => ({
-    broad: `${ctx.competitor || 'competitors'} ${ctx.product} features pricing positioning`,
-    targeted: `site:linkedin.com "${ctx.competitor}" ("new feature" OR "just launched" OR positioning) 2025 2026`,
-    hypothesis: `${ctx.competitor} vs ${ctx.product} differentiation competitive advantage`,
+  competitive: (ctx) => {
+    const { year, nextYear } = currentYears();
+    const competitor = normalizeCompetitor(ctx);
+    return {
+    broad: `${competitor} ${ctx.product} features pricing positioning`,
+    targeted: `site:linkedin.com "${competitor}" ("new feature" OR "just launched" OR positioning) ${year} ${nextYear}`,
+    hypothesis: `${competitor} vs ${ctx.product} differentiation competitive advantage`,
     keywords: ['feature', 'competitor', 'pricing', 'positioning', 'launch', 'announcement'],
-  }),
+  };
+  },
 
-  'win-loss': (ctx) => ({
-    broad: `why choose ${ctx.competitor} over ${ctx.product} review comparison`,
+  'win-loss': (ctx) => {
+    const competitor = normalizeCompetitor(ctx);
+    return {
+    broad: `why choose ${competitor} over ${ctx.product} review comparison`,
     targeted: `site:g2.com OR site:capterra.com "${ctx.product}" review pros cons`,
-    hypothesis: `buyers switching from ${ctx.product} to ${ctx.competitor} reasons`,
+    hypothesis: `buyers switching from ${ctx.product} to ${competitor} reasons`,
     keywords: ['review', 'comparison', 'alternative', 'why', 'better', 'difference'],
-  }),
+  };
+  },
 
-  pricing: (ctx) => ({
-    broad: `${ctx.product} pricing cost per seat willingness to pay ${ctx.competitor}`,
+  pricing: (ctx) => {
+    const competitor = normalizeCompetitor(ctx);
+    const category = normalizeCategory(ctx);
+    return {
+    broad: `${ctx.product} pricing cost per seat willingness to pay ${competitor}`,
     targeted: `site:reddit.com "${ctx.product}" pricing (expensive OR cheap OR worth)`,
-    hypothesis: `pricing model SaaS ${ctx.category} (ROI OR cost savings OR CAC)`,
+    hypothesis: `pricing model SaaS ${category} (ROI OR cost savings OR CAC)`,
     keywords: ['pricing', 'cost', 'willingness', 'CAC', 'ROI', 'per-seat'],
-  }),
+  };
+  },
 
-  positioning: (ctx) => ({
-    broad: `${ctx.product} messaging positioning brand USP vs ${ctx.competitor}`,
+  positioning: (ctx) => {
+    const competitor = normalizeCompetitor(ctx);
+    return {
+    broad: `${ctx.product} messaging positioning brand USP vs ${competitor}`,
     targeted: `site:linkedin.com "${ctx.product}" brand message positioning ("think like" OR "move like")`,
     hypothesis: `positioning gap ${ctx.product} market opportunity messaging`,
     keywords: ['positioning', 'messaging', 'USP', 'brand', 'audience', 'claim'],
-  }),
+  };
+  },
 
-  adjacent: (ctx) => ({
-    broad: `companies disrupting ${ctx.product} category adjacent market threat 2025 2026`,
-    targeted: `site:crunchbase.com OR site:techcrunch.com "${ctx.category}" funding disruption threat`,
+  adjacent: (ctx) => {
+    const { year, nextYear } = currentYears();
+    const category = normalizeCategory(ctx);
+    return {
+    broad: `companies disrupting ${ctx.product} category adjacent market threat ${year} ${nextYear}`,
+    targeted: `site:crunchbase.com OR site:techcrunch.com "${category}" funding disruption threat`,
     hypothesis: `platform expansion AI agents threat to ${ctx.product} category`,
     keywords: ['threat', 'disruption', 'adjacent', 'platform', 'expansion', 'funding'],
-  }),
+  };
+  },
 
-  'execution-engine': (ctx) => ({
+  'execution-engine': (ctx) => {
+    const category = normalizeCategory(ctx);
+    return {
     broad: `${ctx.product} outreach email templates campaign copy examples`,
     targeted: `site:linkedin.com "${ctx.product}" campaign message copy best practices`,
-    hypothesis: `high-performing ${ctx.category} outreach email hooks ROI angle`,
+    hypothesis: `high-performing ${category} outreach email hooks ROI angle`,
     keywords: ['outreach', 'copy', 'email', 'campaign', 'hook', 'variant'],
-  }),
+  };
+  },
 
-  mirofish: (ctx) => ({
+  mirofish: (ctx) => {
+    const { year, nextYear } = currentYears();
+    const category = normalizeCategory(ctx);
+    return {
     broad: `${ctx.product} forecast prediction market sizing TAM revenue projection`,
-    targeted: `site:crunchbase.com OR site:techcrunch.com "${ctx.category}" market size growth projection`,
-    hypothesis: `${ctx.product} category market expansion forecast 2026 2027 opportunity`,
+    targeted: `site:crunchbase.com OR site:techcrunch.com "${category}" market size growth projection`,
+    hypothesis: `${ctx.product} category market expansion forecast ${year} ${nextYear} opportunity`,
     keywords: ['forecast', 'TAM', 'market size', 'projection', 'growth', 'opportunity'],
-  }),
+  };
+  },
 };
 
 /**
@@ -85,17 +133,25 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
  * Agents typically run all 3 in parallel for best coverage.
  */
 export function planQueries(ctx: QueryPlanContext): QueryBundle {
+  const normalizedCtx: QueryPlanContext = {
+    ...ctx,
+    product: ctx.product.trim(),
+    competitor: ctx.competitor?.trim() || undefined,
+    category: ctx.category?.trim() || undefined,
+    audience: ctx.audience?.trim() || undefined,
+    query: compactJoin([ctx.query]).trim(),
+  };
   const generator = TEMPLATES[ctx.domain];
   if (!generator) {
     // Fallback for unknown domains
     return {
-      broad: ctx.query,
-      targeted: `${ctx.query} site:reddit.com OR site:linkedin.com`,
-      hypothesis: `${ctx.query} (ROI OR impact OR competitive)`,
-      keywords: ctx.query.split(/\s+/).slice(0, 5),
+      broad: normalizedCtx.query,
+      targeted: `${normalizedCtx.query} site:reddit.com OR site:linkedin.com`,
+      hypothesis: `${normalizedCtx.query} (ROI OR impact OR competitive)`,
+      keywords: normalizedCtx.query.split(/\s+/).slice(0, 5),
     };
   }
-  return generator(ctx);
+  return generator(normalizedCtx);
 }
 
 /**

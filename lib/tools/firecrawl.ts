@@ -4,7 +4,6 @@ import { buildToolResult } from './fallback';
 import { assessScrapeQuality } from './scrape-quality';
 import { getPolicyForDomain, computeRetryDelay } from './retry-policy';
 
-const API_KEY = process.env.FIRECRAWL_API_KEY;
 const BASE_URL = 'https://api.firecrawl.dev/v1';
 
 // Extraction prompt templates by page type
@@ -37,13 +36,13 @@ function selectExtractPrompt(url: string): string {
 /**
  * Call Firecrawl with standard options.
  */
-async function firecrwlFetch(url: string, extractPrompt: string, isStrict = false): Promise<{ markdown: string; title: string } | null> {
+async function firecrwlFetch(url: string, extractPrompt: string, apiKey: string, isStrict = false): Promise<{ markdown: string; title: string } | null> {
   try {
     const res = await fetch(`${BASE_URL}/scrape`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
         url,
@@ -72,7 +71,8 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
     return { ...(cached as ToolResult<ScrapedPage>), cached: true };
   }
 
-  if (!API_KEY) {
+  const apiKey = process.env.FIRECRAWL_API_KEY;
+  if (!apiKey) {
     // Fallback: basic fetch + strip HTML
     return scrapeBasic(url);
   }
@@ -85,13 +85,13 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
 
   // ── Multi-attempt strategy with escalating fallbacks ─────────────────────
   // Attempt 1: Standard Firecrawl
-  let result = await firecrwlFetch(url, extractPrompt, false);
+  let result = await firecrwlFetch(url, extractPrompt, apiKey, false);
   attemptsMade++;
 
   if (!result && policy.useFirecrawlStrict && attemptsMade < policy.maxAttempts) {
     // Attempt 2: Strict Firecrawl (for flaky sites like LinkedIn)
     await delay(computeRetryDelay(policy, attemptsMade));
-    result = await firecrwlFetch(url, extractPrompt, true);
+    result = await firecrwlFetch(url, extractPrompt, apiKey, true);
     attemptsMade++;
   }
 

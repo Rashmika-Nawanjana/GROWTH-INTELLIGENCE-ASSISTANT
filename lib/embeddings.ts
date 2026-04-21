@@ -1,4 +1,4 @@
-import { embedTextWithHuggingFace } from './agents/hugging-face';
+import { embedTextWithHuggingFace } from './agents/gemini';
 
 export async function embedText(text: string): Promise<number[] | null> {
   try {

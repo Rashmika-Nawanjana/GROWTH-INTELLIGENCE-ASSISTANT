@@ -16,7 +16,7 @@
 import { searchMetaAds } from '../../tools/meta-ads';
 import { searchHN } from '../../tools/hn-algolia';
 import { searchWeb } from '../../tools/serpapi';
-import { GoogleGenAI } from '@google/genai';
+import { generateHuggingFaceJson } from '../gemini';
 import type {
   AgentContext,
   AgentOutput,
@@ -25,10 +25,7 @@ import type {
   ConfidenceLevel,
 } from '../types';
 import { scoreToLevel } from '../types';
-import { buildContentParts } from '../gemini-utils';
 import { computeSignalQualityPenalty, extractToolResults } from '../../tools/fallback';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 export interface ABVariantOutput extends AgentOutput {
   artifactType: 'execution-plan';
@@ -36,7 +33,7 @@ export interface ABVariantOutput extends AgentOutput {
 }
 
 export async function runABVariantAgent(ctx: AgentContext): Promise<ABVariantOutput> {
-  const { query, product, competitor, priorContext, researchOutputs = [], images } = ctx;
+  const { query, product, competitor, priorContext, researchOutputs = [] } = ctx;
 
   // ── Parallel tool fetch ───────────────────────────────────────────────────
   const [metaAdsResult, hnResult, webResult] = await Promise.allSettled([
@@ -130,14 +127,10 @@ Produce a JSON object with this exact shape:
 
   let parsed: any = {};
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: buildContentParts(userPrompt, images) }],
-      config: { systemInstruction: systemPrompt, responseMimeType: 'application/json' },
+    parsed = await generateHuggingFaceJson<any>(systemPrompt, userPrompt, {
+      maxNewTokens: 1800,
+      temperature: 0.25,
     });
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    const clean = text.replace(/```json\s*/i, '').replace(/```\s*/i, '').replace(/\s*```$/i, '').trim();
-    parsed = JSON.parse(clean);
   } catch {
     parsed = {
       variants: [

@@ -7,7 +7,7 @@ import { adjacentAgent } from './adjacent';
 import { executionEngineAgent } from './execution/execution-engine';
 import { mirofishAgent } from './mirofish';
 import { detectExecutionIntent } from './execution-intent';
-import { generateHuggingFaceText } from './hugging-face';
+import { generateHuggingFaceText } from './gemini';
 import type {
   AgentConfig,
   AgentContext,
@@ -36,7 +36,9 @@ const EST_COST_PER_MODEL_CALL =
   EST_INPUT_TOKENS_PER_CALL * COST_PER_INPUT_TOKEN +
   EST_OUTPUT_TOKENS_PER_CALL * COST_PER_OUTPUT_TOKEN;
 
-const HF_MODEL = process.env.HUGGING_FACE_MODEL?.trim() || 'Qwen/Qwen2.5-7B-Instruct';
+// Gemini model is resolved inside lib/agents/gemini.ts via GEMINI_MODEL env
+// var (default: gemini-2.5-flash). We deliberately don't override per-call
+// so that one env change switches every agent at once.
 
 // ── All registered domain agents (6 fast Stage-1 agents) ────────────────────
 const ALL_AGENTS: AgentConfig[] = [
@@ -60,6 +62,15 @@ interface ClassificationResult {
   intent: string;
   runExecution: boolean;  // true when query is execution-intent (write copy, outreach, variants, brief)
 }
+
+const VALID_DOMAINS: IntelligenceDomain[] = [
+  'market-trends',
+  'competitive',
+  'win-loss',
+  'pricing',
+  'positioning',
+  'adjacent',
+];
 
 interface OrchestrateOptions {
   injectedContext?: string; // extra context injected into agents and synthesizer (e.g. feedback loop)
@@ -126,7 +137,6 @@ Set runExecution: false for pure research questions ("compare X vs Y", "what is 
       ? `\n\nAttached images: ${images.length}. Use them as contextual metadata only; the specialist agents inspect the actual image content.`
       : '';
     const raw = await generateHuggingFaceText(prompt + imageNote, {
-      model: HF_MODEL,
       maxNewTokens: 512,
       temperature: 0.1,
     });
@@ -136,7 +146,7 @@ Set runExecution: false for pure research questions ("compare X vs Y", "what is 
       competitor: (parsed.competitor as string) ?? undefined,
       productUrl: (parsed.productUrl as string) ?? undefined,
       competitorUrl: (parsed.competitorUrl as string) ?? undefined,
-      domains: (parsed.domains as IntelligenceDomain[]) ?? ['market-trends', 'competitive', 'win-loss'],
+      domains: normalizeDomains(parsed.domains),
       intent: (parsed.intent as string) ?? query,
       runExecution: ((parsed.runExecution as boolean) ?? false) || regexExecution,
     };
@@ -173,6 +183,19 @@ function safeParseJson(raw: string): Record<string, unknown> {
     }
     return {};
   }
+}
+
+function normalizeDomains(rawDomains: unknown): IntelligenceDomain[] {
+  if (!Array.isArray(rawDomains)) {
+    return ['market-trends', 'competitive', 'win-loss'];
+  }
+  const filtered = rawDomains
+    .filter((domain): domain is IntelligenceDomain =>
+      typeof domain === 'string' && VALID_DOMAINS.includes(domain as IntelligenceDomain),
+    );
+  if (filtered.length >= 3) return filtered;
+  const merged = [...new Set([...filtered, 'market-trends', 'competitive', 'win-loss'])];
+  return merged.slice(0, 6) as IntelligenceDomain[];
 }
 
 // ── Synthesizer — merges all agent outputs into a final answer ────────────────
@@ -231,7 +254,6 @@ Return ONLY valid JSON (no markdown, no fences):
       ? `\nThe user has also attached ${images.length} image(s). Reference their visual content (text, UI elements, charts, pricing tables, etc.) directly in your answer.`
       : '';
     const raw = await generateHuggingFaceText(prompt + imageNote, {
-      model: HF_MODEL,
       maxNewTokens: 768,
       temperature: 0.2,
     });
@@ -334,7 +356,6 @@ Return ONLY valid JSON (no markdown, no fences):
 
   try {
     const raw = await generateHuggingFaceText(prompt, {
-      model: HF_MODEL,
       maxNewTokens: 1024,
       temperature: 0.15,
     });

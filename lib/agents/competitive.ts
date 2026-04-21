@@ -1,7 +1,7 @@
 import { searchWeb, searchNews } from '../tools/serpapi';
 import { scrapePage, scrapeCompetitorPricing } from '../tools/firecrawl';
 import { searchHN } from '../tools/hn-algolia';
-import { GoogleGenAI } from '@google/genai';
+import { generateHuggingFaceJson } from './gemini';
 import type {
   AgentConfig,
   AgentContext,
@@ -12,13 +12,10 @@ import type {
   ConfidenceLevel,
 } from './types';
 import { scoreToLevel } from './types';
-import { buildContentParts } from './gemini-utils';
 import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-
 async function run(ctx: AgentContext): Promise<AgentOutput> {
-  const { query, product, competitor, competitorUrl, priorContext, images } = ctx;
+  const { query, product, competitor, competitorUrl, priorContext } = ctx;
 
   const competitorName = competitor ?? 'main competitor';
   // Infer competitor URL if not provided
@@ -111,16 +108,10 @@ For the matrix, infer the most relevant feature dimensions from the signals abov
 
   let parsed: any = {};
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: buildContentParts(userPrompt, images) }],
-      config: {
-        systemInstruction: systemPrompt,
-        responseMimeType: 'application/json',
-      },
+    parsed = await generateHuggingFaceJson<any>(systemPrompt, userPrompt, {
+      maxNewTokens: 1400,
+      temperature: 0.2,
     });
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    const clean = text.replace(/```jsons*/i,'').replace(/```s*/i,'').replace(/s*```$/i,'').trim(); parsed = JSON.parse(clean);
   } catch {
     parsed = {
       facts: rawContent.slice(0, 3).map(s => s.replace(/^\[[^\]]+\]\s*/, '')).filter(s => s.length > 15),

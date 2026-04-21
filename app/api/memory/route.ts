@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import { generateHuggingFaceJson } from '@/lib/agents/gemini';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { UserMemory, MemoryFact } from '@/lib/memory';
 
 export const runtime = 'nodejs';
-
-function safeParseJson(raw: string): Record<string, unknown> {
-  try {
-    const clean = raw.replace(/^```json\s*/i, '').replace(/^```\s*/, '').replace(/\s*```$/, '').trim();
-    return JSON.parse(clean);
-  } catch {
-    const match = raw.match(/\{[\s\S]*\}/);
-    if (match) { try { return JSON.parse(match[0]); } catch { /* ignore */ } }
-    return {};
-  }
-}
 
 function dedupe(arr: string[]): string[] {
   return [...new Set(arr.map(s => s.trim()).filter(Boolean))];
@@ -58,20 +47,12 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ ok: false, error: 'unauthenticated' }, { status: 401 });
 
-    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-
     const existingSummary = existingMemory.raw_summary
       ? `Existing memory about this user:\n${existingMemory.raw_summary}\nKnown products: ${existingMemory.products.join(', ') || 'none'}\nKnown competitors: ${existingMemory.competitors.join(', ') || 'none'}`
       : 'No prior memory about this user.';
 
-    const prompt = `You are a memory extraction system for a growth intelligence assistant.
+    const systemPrompt = `You are a memory extraction system for a growth intelligence assistant.
 Your job is to extract durable facts about the USER from their query — not about the companies they're researching.
-
-${existingSummary}
-
-Latest exchange:
-User asked: "${userQuery}"
-System answered: "${assistantAnswer.slice(0, 400)}"
 
 Extract ONLY facts that reveal something about WHO THE USER IS:
 - Their role or job title
@@ -79,9 +60,15 @@ Extract ONLY facts that reveal something about WHO THE USER IS:
 - Companies/products they regularly research or compete with
 - Their strategic focus areas
 
-Do NOT extract facts about external companies — only about the user themselves.
+Do NOT extract facts about external companies — only about the user themselves.`;
 
-Return JSON:
+    const userPrompt = `${existingSummary}
+
+Latest exchange:
+User asked: "${userQuery}"
+System answered: "${assistantAnswer.slice(0, 400)}"
+
+Return JSON with this exact shape:
 {
   "role": string | null,
   "company": string | null,
@@ -92,14 +79,10 @@ Return JSON:
   "summary_update": string
 }`;
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: { responseMimeType: 'application/json' },
-    });
-
-    const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    const parsed = safeParseJson(raw);
+    const parsed = await generateHuggingFaceJson<Record<string, unknown>>(systemPrompt, userPrompt, {
+      maxNewTokens: 512,
+      temperature: 0.1,
+    }).catch(() => ({} as Record<string, unknown>));
 
     const mergedProducts = dedupe([...existingMemory.products, ...((parsed.new_products as string[]) ?? [])]);
     const mergedCompetitors = dedupe([...existingMemory.competitors, ...((parsed.new_competitors as string[]) ?? [])]);
@@ -128,10 +111,17 @@ Return JSON:
 
     return NextResponse.json({ ok: true });
   } catch (err) {
-    // Rate limit (429) or quota exhausted — memory extraction is non-critical,
-    // return 200 so the client doesn't show an error in DevTools.
+    // Memory extraction is non-critical — return 200 on rate limit / transient
+    // provider errors so the client doesn't surface a DevTools error.
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes('429') || msg.toLowerCase().includes('resource_exhausted') || msg.toLowerCase().includes('rate')) {
+    const lower = msg.toLowerCase();
+    if (
+      msg.includes('429') ||
+      lower.includes('resource_exhausted') ||
+      lower.includes('rate') ||
+      lower.includes('gemini') ||
+      lower.includes('hugging face')
+    ) {
       return NextResponse.json({ ok: true, skipped: 'rate_limited' });
     }
     console.error('memory route error:', err);
