@@ -25,6 +25,18 @@ import { runABVariantAgent } from './ab-variant-agent';
 import { runOutreachFormatter } from './outreach-formatter';
 import { enforceExecutionGrounding } from './grounding';
 
+function dedupeStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = value.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(value.trim());
+  }
+  return out;
+}
+
 async function run(ctx: AgentContext): Promise<AgentOutput> {
   const { researchOutputs = [] } = ctx;
 
@@ -61,15 +73,15 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   ].filter((s, i, a) => s.url && a.findIndex(x => x.url === s.url) === i);  // dedupe
 
   // ── Merge facts + interpretation ──────────────────────────────────────────
-  const allFacts = [
+  const allFacts = dedupeStrings([
     ...(contentResult.status === 'fulfilled' ? contentResult.value.facts : []),
     ...(variantResult.status === 'fulfilled' ? variantResult.value.facts : []),
-  ].slice(0, 6);
+  ]).slice(0, 6);
 
-  const allInterpretation = [
+  const allInterpretation = dedupeStrings([
     ...(contentResult.status === 'fulfilled' ? contentResult.value.interpretation : []),
     ...(variantResult.status === 'fulfilled' ? variantResult.value.interpretation : []),
-  ].slice(0, 4);
+  ]).slice(0, 4);
 
   // ── Aggregate confidence (average of successful sub-agents) ──────────────
   const scores = [

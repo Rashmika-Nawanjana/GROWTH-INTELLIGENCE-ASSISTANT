@@ -69,6 +69,22 @@ const PRIORITY_COLORS: Record<string, string> = {
   ads:      '#f59e0b',
 };
 
+function normalizeText(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function uniqueStrings(values: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    out.push(value.trim());
+  }
+  return out;
+}
+
 const SOURCE_TOOL_LABELS: Record<AgentSource['tool'], string> = {
   serpapi: 'web',
   firecrawl: 'pages',
@@ -264,29 +280,29 @@ function VariantDetail({
   const { border: borderC, surface2: cardBg, text: textMain, textMuted, textSubtle } = useTheme();
   const email = variant.channels?.email;
   const linkedin = variant.channels?.linkedin;
-  const followUps = email?.followUps ?? [];
-  const groundedSignals = variant.groundedSignals ?? [];
+  const followUps = uniqueStrings(email?.followUps ?? []);
+  const groundedSignals = uniqueStrings(variant.groundedSignals ?? []);
 
   return (
-    <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${accentColor}`, background: cardBg, boxShadow: `0 0 0 1px ${accentColor}22` }}>
+    <div className="rounded-lg overflow-hidden transition-all hover:-translate-y-[1px] hover:shadow-lg" style={{ border: `1px solid ${accentColor}`, background: cardBg, boxShadow: `0 0 0 1px ${accentColor}22` }}>
       {/* Header — angle + ID */}
       <div className="flex items-center gap-2.5 px-4 py-3" style={{ borderBottom: `1px solid ${borderC}`, background: `${accentColor}10` }}>
         <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded shrink-0"
           style={{ color: accentColor, background: `${accentColor}15`, border: `1px solid ${accentColor}30` }}>
           {variant.id}
         </span>
-        <span className="text-[13px] font-semibold truncate flex-1" style={{ color: textMain }}>{variant.angle}</span>
+        <span className="text-[14px] font-semibold truncate flex-1" style={{ color: textMain }}>{variant.angle}</span>
       </div>
 
       {/* Hypothesis + metric — always visible, pinned to the top */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-px" style={{ background: borderC, borderBottom: `1px solid ${borderC}` }}>
         <div className="p-3" style={{ background: `${accentColor}08` }}>
           <p className="text-[10px] font-mono font-semibold uppercase tracking-wider mb-1" style={{ color: accentColor }}>Hypothesis</p>
-          <p className="text-[12px] leading-relaxed italic" style={{ color: textMuted }}>{variant.hypothesis}</p>
+          <p className="text-[13px] leading-relaxed italic" style={{ color: textMuted }}>{variant.hypothesis}</p>
         </div>
         <div className="p-3" style={{ background: cardBg }}>
           <p className="text-[10px] font-mono font-semibold uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Success Metric</p>
-          <p className="text-[12px] font-mono" style={{ color: textMain }}>{variant.successMetric}</p>
+          <p className="text-[13px] font-mono" style={{ color: textMain }}>{variant.successMetric}</p>
           <p className="text-[10px] font-mono mt-1" style={{ color: textSubtle }}>
             <span className="opacity-70">Variable: </span>{variant.variable}
           </p>
@@ -307,11 +323,11 @@ function VariantDetail({
             <div className="rounded-md p-3 flex flex-col gap-2" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
               <div>
                 <p className="text-[9px] font-mono uppercase tracking-wider mb-0.5" style={{ color: textSubtle }}>Subject</p>
-                <p className="text-[12px] font-medium" style={{ color: textMain }}>{email.subject}</p>
+                <p className="text-[13px] font-medium" style={{ color: textMain }}>{email.subject}</p>
               </div>
               <div style={{ borderTop: `1px solid ${borderC}`, paddingTop: '8px' }}>
                 <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Body</p>
-                <p className="text-[12px] leading-relaxed whitespace-pre-line" style={{ color: textMuted }}>{email.body}</p>
+                <p className="text-[13px] leading-relaxed whitespace-pre-line" style={{ color: textMuted }}>{email.body}</p>
               </div>
               {followUps.length > 0 && (
                 <div style={{ borderTop: `1px solid ${borderC}`, paddingTop: '8px' }}>
@@ -320,7 +336,7 @@ function VariantDetail({
                     {followUps.map((fu, i) => (
                       <div key={`fu-${i}-${fu.slice(0, 12)}`} className="flex items-start gap-2">
                         <span className="text-[9px] font-mono mt-0.5 shrink-0" style={{ color: textSubtle }}>↳ {i + 1}</span>
-                        <p className="text-[11px] leading-relaxed" style={{ color: textMuted }}>{fu}</p>
+                        <p className="text-[12px] leading-relaxed" style={{ color: textMuted }}>{fu}</p>
                       </div>
                     ))}
                   </div>
@@ -343,11 +359,11 @@ function VariantDetail({
             <div className="rounded-md p-3 flex flex-col gap-2" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
               <div>
                 <p className="text-[9px] font-mono uppercase tracking-wider mb-0.5" style={{ color: textSubtle }}>Hook</p>
-                <p className="text-[12px] font-semibold" style={{ color: textMain }}>{linkedin.hook}</p>
+                <p className="text-[13px] font-semibold" style={{ color: textMain }}>{linkedin.hook}</p>
               </div>
               <div style={{ borderTop: `1px solid ${borderC}`, paddingTop: '8px' }}>
                 <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Post</p>
-                <p className="text-[12px] leading-relaxed" style={{ color: textMuted }}>{linkedin.post}</p>
+                <p className="text-[13px] leading-relaxed" style={{ color: textMuted }}>{linkedin.post}</p>
               </div>
             </div>
           </div>
@@ -359,7 +375,7 @@ function VariantDetail({
             <p className="text-[9px] font-mono uppercase tracking-wider mb-1.5" style={{ color: textSubtle }}>Grounded Signals</p>
             <ul className="flex flex-col gap-1">
               {groundedSignals.map((sig, i) => (
-                <li key={`sig-${i}-${sig.slice(0, 12)}`} className="flex items-start gap-1.5 text-[11px]" style={{ color: textSubtle }}>
+                <li key={`sig-${i}-${sig.slice(0, 12)}`} className="flex items-start gap-1.5 text-[12px]" style={{ color: textSubtle }}>
                   <span className="font-mono mt-0.5 shrink-0" style={{ color: accentColor }}>›</span>{sig}
                 </li>
               ))}
@@ -560,9 +576,29 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
   const [selectedObjective, setSelectedObjective] = useState<string>(() => output.brief.objective || '');
   const { border: borderC, surface: cardBg, surface2: cardBg2, text: textMain, textMuted, textSubtle } = useTheme();
 
-  const variants = output.variants ?? [];
+  const variants = (output.variants ?? []).map(variant => ({
+    ...variant,
+    groundedSignals: uniqueStrings(variant.groundedSignals ?? []),
+    channels: {
+      ...variant.channels,
+      email: variant.channels?.email
+        ? {
+            ...variant.channels.email,
+            followUps: uniqueStrings(variant.channels.email.followUps ?? []),
+          }
+        : undefined,
+    },
+  }));
   const deployment = output.deployment ?? [];
-  const brief = output.brief;
+  const brief = {
+    ...output.brief,
+    painPoints: uniqueStrings(output.brief.painPoints ?? []),
+    successMetrics: uniqueStrings(output.brief.successMetrics ?? []),
+    nextSteps: uniqueStrings(output.brief.nextSteps ?? []),
+    keyMessagingAngles: (output.brief.keyMessagingAngles ?? []).filter((angle, idx, arr) =>
+      arr.findIndex(a => normalizeText(a.angle) === normalizeText(angle.angle)) === idx,
+    ),
+  };
   const sources = output.sources ?? [];
   const sourceMix = getToolMix(sources);
   const audienceChoices = Array.from(new Set([
@@ -665,7 +701,7 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
       <div className="flex items-center justify-between px-5 py-3.5 gap-3" style={{ borderBottom: `1px solid ${borderC}`, background: 'rgba(0,112,243,0.06)' }}>
         <div className="flex items-center gap-2.5 min-w-0">
           <ArrowRight size={14} style={{ color: '#0070f3' }} className="shrink-0" />
-          <span className="text-[13px] font-semibold" style={{ color: textMain }}>Execution Plan</span>
+          <span className="text-[14px] font-semibold" style={{ color: textMain }}>Execution Plan</span>
           <span className="text-[10px] font-mono px-2 py-0.5 rounded truncate" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.1)', border: '1px solid rgba(0,112,243,0.2)' }}>
             {product}
           </span>
@@ -707,7 +743,7 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className="flex items-center gap-1.5 px-4 py-2.5 text-[12px] font-mono font-medium transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2.5 text-[13px] font-mono font-medium transition-colors"
             style={{
               color: activeTab === tab.key ? '#0070f3' : textSubtle,
               borderBottom: activeTab === tab.key ? '2px solid #0070f3' : '2px solid transparent',
@@ -759,7 +795,7 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
                   <div className="flex items-center justify-between gap-2">
                     <div>
                       <p className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>Scope narrowing</p>
-                      <p className="text-[11px] mt-1" style={{ color: textMuted }}>Pick the channel, audience, objective, and angle you want to push into the next run.</p>
+                      <p className="text-[12px] mt-1" style={{ color: textMuted }}>Pick the channel, audience, objective, and angle you want to push into the next run.</p>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.2)' }}>
                       {sourceMix.length} source types
