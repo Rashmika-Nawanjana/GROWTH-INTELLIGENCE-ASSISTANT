@@ -98,19 +98,25 @@ export async function embedTextWithHuggingFace(text: string): Promise<number[] |
 
   const model = process.env.HUGGING_FACE_EMBEDDING_MODEL?.trim() || DEFAULT_EMBEDDING_MODEL;
   const encodedModel = model.split('/').map(segment => encodeURIComponent(segment)).join('/');
-  const response = await fetch(`https://api-inference.huggingface.co/pipeline/feature-extraction/${encodedModel}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
+  // The legacy `api-inference.huggingface.co/pipeline/feature-extraction/<model>`
+  // endpoint was deprecated in the 2026 Inference Router migration. The active
+  // endpoint is served via the HF router under `/hf-inference/models/...`.
+  const response = await fetch(
+    `https://router.huggingface.co/hf-inference/models/${encodedModel}/pipeline/feature-extraction`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        inputs: trimmed.slice(0, 8000),
+        options: { wait_for_model: true },
+        parameters: { normalize: true, truncate: true },
+      }),
     },
-    body: JSON.stringify({
-      inputs: trimmed.slice(0, 8000),
-      options: { wait_for_model: true },
-      parameters: { normalize: true, truncate: true },
-    }),
-  });
+  );
 
   const raw = await response.text();
   if (!response.ok) {
@@ -124,10 +130,57 @@ export async function embedTextWithHuggingFace(text: string): Promise<number[] |
     return null;
   }
 
-  if (Array.isArray(parsed) && Array.isArray(parsed[0])) {
-    const firstVector = parsed[0] as unknown[];
-    return firstVector.filter((value): value is number => typeof value === 'number');
+  // Router returns either a flat vector (single input) or a 2-D array
+  // (batched). Handle both.
+  if (Array.isArray(parsed)) {
+    if (parsed.length > 0 && Array.isArray(parsed[0])) {
+      const firstVector = parsed[0] as unknown[];
+      return firstVector.filter((value): value is number => typeof value === 'number');
+    }
+    if (parsed.every(v => typeof v === 'number')) {
+      return parsed as number[];
+    }
   }
 
   return null;
+}
+
+// ── JSON helper ───────────────────────────────────────────────────────────────
+// Agents previously called Gemini with `responseMimeType: 'application/json'`.
+// Hugging Face chat completions don't support that flag, so we ask for JSON
+// explicitly in the prompt and strip markdown fences the model tends to emit.
+function stripJsonFences(raw: string): string {
+  return raw
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .trim();
+}
+
+export async function generateHuggingFaceJson<T = Record<string, unknown>>(
+  systemPrompt: string,
+  userPrompt: string,
+  options: HuggingFaceOptions = {},
+): Promise<T> {
+  const combined = `${systemPrompt.trim()}\n\n${userPrompt.trim()}\n\nReturn ONLY valid JSON — no prose, no markdown fences, no commentary.`;
+  const raw = await generateHuggingFaceText(combined, {
+    model: options.model,
+    maxNewTokens: options.maxNewTokens ?? 1400,
+    temperature: options.temperature ?? 0.2,
+  });
+
+  const cleaned = stripJsonFences(raw);
+  try {
+    return JSON.parse(cleaned) as T;
+  } catch {
+    const match = cleaned.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]) as T;
+      } catch {
+        // fall through
+      }
+    }
+    throw new Error(`Hugging Face JSON parse failed: ${safePreview(cleaned)}`);
+  }
 }

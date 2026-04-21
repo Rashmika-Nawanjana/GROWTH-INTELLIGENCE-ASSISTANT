@@ -14,7 +14,7 @@
 
 import { searchWeb } from '../../tools/serpapi';
 import { scrapePage } from '../../tools/firecrawl';
-import { GoogleGenAI } from '@google/genai';
+import { generateHuggingFaceJson } from '../hugging-face';
 import type {
   AgentContext,
   AgentOutput,
@@ -24,10 +24,7 @@ import type {
   ConfidenceLevel,
 } from '../types';
 import { scoreToLevel } from '../types';
-import { buildContentParts } from '../gemini-utils';
 import { computeSignalQualityPenalty, extractToolResults } from '../../tools/fallback';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 export interface OutreachFormatterOutput extends AgentOutput {
   artifactType: 'execution-plan';
@@ -39,7 +36,7 @@ export async function runOutreachFormatter(
   ctx: AgentContext,
   inputVariants: CampaignVariant[] = [],
 ): Promise<OutreachFormatterOutput> {
-  const { query, product, competitor, priorContext, images } = ctx;
+  const { query, product, competitor, priorContext } = ctx;
 
   // ── Parallel tool fetch ───────────────────────────────────────────────────
   const [bestPracticesResult, landingResult] = await Promise.allSettled([
@@ -134,14 +131,10 @@ Produce a JSON object with this exact shape:
 
   let parsed: any = {};
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: buildContentParts(userPrompt, images) }],
-      config: { systemInstruction: systemPrompt, responseMimeType: 'application/json' },
+    parsed = await generateHuggingFaceJson<any>(systemPrompt, userPrompt, {
+      maxNewTokens: 1800,
+      temperature: 0.25,
     });
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
-    const clean = text.replace(/```json\s*/i, '').replace(/```\s*/i, '').replace(/\s*```$/i, '').trim();
-    parsed = JSON.parse(clean);
   } catch {
     // Fallback: return input variants unchanged + default deployment
     parsed = {

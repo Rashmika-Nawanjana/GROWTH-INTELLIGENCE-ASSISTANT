@@ -10,8 +10,7 @@
 
 import { interviewSwarm, isSimulationReady, getSimulationIdForProduct } from '../tools/mirofish';
 import { searchTrends } from '../tools/serpapi';
-import { GoogleGenAI } from '@google/genai';
-import { buildContentParts } from './gemini-utils';
+import { generateHuggingFaceText, generateHuggingFaceJson } from './hugging-face';
 import type {
   AgentConfig,
   AgentContext,
@@ -20,8 +19,6 @@ import type {
   AgentSource,
 } from './types';
 import { scoreToLevel } from './types';
-
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,13 +48,12 @@ function makeEmptyForecast(query: string, reason: string): ForecastOutput {
   };
 }
 
-/** Use Gemini to turn the user's query into a single falsifiable forecast question. */
+/** Turn the user's query into a single falsifiable forecast question. */
 async function formulateForecastQuestion(
   query: string,
   product: string,
   competitor: string | undefined,
   priorContext: string | undefined,
-  images: AgentContext['images'],
 ): Promise<string> {
   const prompt = `You are a prediction-market question writer.
 
@@ -74,12 +70,8 @@ Requirements:
 
 Reply with ONLY the forecast question string, no JSON, no preamble.`;
 
-  const result = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: [{ role: 'user', parts: buildContentParts(prompt, images) }],
-  });
-
-  return result.text?.trim() ?? query;
+  const result = await generateHuggingFaceText(prompt, { maxNewTokens: 160, temperature: 0.2 });
+  return result.trim() || query;
 }
 
 /** Send swarm responses + trend baseline to Gemini → structured ForecastOutput fields. */
@@ -90,7 +82,6 @@ async function synthesiseForecast(params: {
   swarmSize: number;
   trendSummary: string;
   priorContext: string | undefined;
-  images: AgentContext['images'];
 }): Promise<{
   pointEstimate: number;
   unit: 'probability' | 'value' | 'percent';
@@ -142,17 +133,11 @@ Synthesise these into a structured forecast. Reply with ONLY valid JSON matching
   "rationale": "string"               // 2-3 sentence plain-English summary of the forecast
 }`;
 
-  const result = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: [{ role: 'user', parts: buildContentParts(prompt, params.images) }],
-    config: { responseMimeType: 'application/json' },
-  });
-
   try {
-    const text = result.text ?? '{}';
-    // Strip markdown code fences if present
-    const json = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '');
-    return JSON.parse(json);
+    return await generateHuggingFaceJson<any>('You are a prediction-market analyst.', prompt, {
+      maxNewTokens: 1400,
+      temperature: 0.2,
+    });
   } catch {
     return {
       pointEstimate: 0.5,
@@ -197,7 +182,6 @@ const SYNTHETIC_PERSONAS = [
 async function runSyntheticSwarm(
   forecastQuestion: string,
   product: string,
-  images: AgentContext['images'],
 ): Promise<{ responses: string[]; totalCount: number }> {
   const personaList = SYNTHETIC_PERSONAS.map((p, i) => `${i + 1}. ${p}`).join('\n');
 
@@ -213,19 +197,16 @@ For EACH persona, write a 1-2 sentence response in their voice that:
 - Gives their main reason (their background shapes this)
 - Is grounded in realistic market signals for 2025/2026
 
-Reply with ONLY a JSON array of ${SYNTHETIC_PERSONAS.length} strings (one per persona, in order):
-["response1", "response2", ...]`;
-
-  const result = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: [{ role: 'user', parts: buildContentParts(prompt, images) }],
-    config: { responseMimeType: 'application/json' },
-  });
+Reply with ONLY a JSON object with a "responses" field containing an array of ${SYNTHETIC_PERSONAS.length} strings (one per persona, in order):
+{ "responses": ["response1", "response2", ...] }`;
 
   try {
-    const text = result.text ?? '[]';
-    const json = text.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '');
-    const responses: string[] = JSON.parse(json);
+    const parsed = await generateHuggingFaceJson<{ responses?: string[] }>(
+      'You are a simulation engine producing structured persona responses.',
+      prompt,
+      { maxNewTokens: 1600, temperature: 0.5 },
+    );
+    const responses = Array.isArray(parsed?.responses) ? parsed.responses.filter(Boolean) : [];
     return { responses, totalCount: responses.length };
   } catch {
     return { responses: [], totalCount: 0 };
@@ -235,7 +216,7 @@ Reply with ONLY a JSON array of ${SYNTHETIC_PERSONAS.length} strings (one per pe
 
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
-  const { query, product, competitor, priorContext, images } = ctx;
+  const { query, product, competitor, priorContext } = ctx;
   const sources: AgentSource[] = [];
 
   // Step 0: Resolve simulation_id for the active product
@@ -248,7 +229,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
 
   // Step 2: Formulate a good forecast question from the user query
   const forecastQuestion = await formulateForecastQuestion(
-    query, product, competitor, priorContext, images,
+    query, product, competitor, priorContext,
   ).catch(() => query);
 
   // Step 3: Fan-out — interview swarm (real or synthetic) + trend baseline in parallel
@@ -263,9 +244,9 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
 
     if (interviewResult.status === 'rejected') {
       // Real swarm failed — fall through to synthetic below
-      const synth = await runSyntheticSwarm(forecastQuestion, product, images);
+      const synth = await runSyntheticSwarm(forecastQuestion, product);
       swarmBundle = { responses: synth.responses.map(r => ({ response: r })), totalCount: synth.totalCount };
-      swarmSourceLabel = `Gemini synthetic swarm — ${synth.totalCount} AI personas (real swarm failed)`;
+      swarmSourceLabel = `Synthetic swarm — ${synth.totalCount} AI personas (real swarm failed)`;
     } else {
       swarmBundle = interviewResult.value.data;
       swarmSourceLabel = `MiroFish swarm — ${swarmBundle.totalCount} simulated personas polled`;
@@ -296,9 +277,9 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
       tool: 'mirofish',
     });
   } else {
-    // No real simulation available — use Gemini synthetic swarm
+    // No real simulation available — use LLM-based synthetic swarm
     const [synthResult, trendsResult] = await Promise.allSettled([
-      runSyntheticSwarm(forecastQuestion, product, images),
+      runSyntheticSwarm(forecastQuestion, product),
       searchTrends([product, competitor].filter(Boolean) as string[]),
     ]);
 
@@ -307,7 +288,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
 
     sources.push({
       url: 'synthetic',
-      title: `Gemini synthetic swarm — ${synth.totalCount} AI personas (no live simulation)`,
+      title: `Synthetic swarm — ${synth.totalCount} AI personas (no live simulation)`,
       timestamp: new Date().toISOString(),
       tool: 'mirofish',
     });
@@ -325,10 +306,10 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
 
   // If swarm is empty (total failure), return graceful empty
   if (!swarmBundle.totalCount) {
-    return makeEmptyForecast(query, 'Both real and synthetic swarm returned no responses. Check Gemini API quota.');
+    return makeEmptyForecast(query, 'Both real and synthetic swarm returned no responses. Check HUGGING_FACE_API_KEY / model quota.');
   }
 
-  // Step 4: Gemini synthesises swarm responses → structured forecast
+  // Step 4: Synthesise swarm responses → structured forecast (via HF JSON)
   const swarmResponseTexts = swarmBundle.responses.map(r => r.response).filter(Boolean);
   const synthesised = await synthesiseForecast({
     forecastQuestion,
@@ -337,7 +318,6 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     swarmSize: swarmBundle.totalCount,
     trendSummary: '',
     priorContext,
-    images,
   });
 
   return {
