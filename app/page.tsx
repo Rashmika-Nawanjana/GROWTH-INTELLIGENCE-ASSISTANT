@@ -1342,7 +1342,7 @@ export default function VeracityDashboard() {
                           <span style={{ opacity: 0.3 }}>|</span>
                           <span title="Agents completed / dispatched">{agentDone}/{agentTotal} agents</span>
                           <span style={{ opacity: 0.3 }}>|</span>
-                          <span title="Gemini API calls">{isLive ? `~${geminiCalls}` : geminiCalls} API</span>
+                          <span title="Model calls">{isLive ? `~${geminiCalls}` : geminiCalls} calls</span>
                           <span style={{ opacity: 0.3 }}>|</span>
                           <span title="External tool invocations">{isLive ? `~${toolCalls}` : toolCalls} tools</span>
                         </span>

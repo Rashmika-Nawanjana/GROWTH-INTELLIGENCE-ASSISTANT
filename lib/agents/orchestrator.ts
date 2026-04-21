@@ -1,4 +1,3 @@
-import { GoogleGenAI } from '@google/genai';
 import { marketTrendsAgent } from './market-trends';
 import { competitiveAgent } from './competitive';
 import { winLossAgent } from './win-loss';
@@ -8,6 +7,7 @@ import { adjacentAgent } from './adjacent';
 import { executionEngineAgent } from './execution/execution-engine';
 import { mirofishAgent } from './mirofish';
 import { detectExecutionIntent } from './execution-intent';
+import { generateHuggingFaceText } from './hugging-face';
 import type {
   AgentConfig,
   AgentContext,
@@ -26,19 +26,17 @@ import type {
 import { scoreToLevel } from './types';
 
 // ── Cost estimation constants ───────────────────────────────────────────────
-// Gemini 2.0 Flash pricing (per 1M tokens, as of 2025-01):
-//   Input:  $0.10 / 1M tokens
-//   Output: $0.40 / 1M tokens
-// We estimate ~2K input + ~1K output tokens per Gemini call.
+// Lightweight model-call estimate used for the UI metrics readout.
+// The exact provider cost varies, so this intentionally stays heuristic.
 const EST_INPUT_TOKENS_PER_CALL = 2000;
 const EST_OUTPUT_TOKENS_PER_CALL = 1000;
 const COST_PER_INPUT_TOKEN = 0.10 / 1_000_000;
 const COST_PER_OUTPUT_TOKEN = 0.40 / 1_000_000;
-const EST_COST_PER_GEMINI_CALL =
+const EST_COST_PER_MODEL_CALL =
   EST_INPUT_TOKENS_PER_CALL * COST_PER_INPUT_TOKEN +
   EST_OUTPUT_TOKENS_PER_CALL * COST_PER_OUTPUT_TOKEN;
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+const HF_MODEL = process.env.HUGGING_FACE_MODEL?.trim() || 'Qwen/Qwen2.5-7B-Instruct';
 
 // ── All registered domain agents (6 fast Stage-1 agents) ────────────────────
 const ALL_AGENTS: AgentConfig[] = [
@@ -124,16 +122,14 @@ Set runExecution: false for pure research questions ("compare X vs Y", "what is 
   const regexExecution = detectExecutionIntent(query);
 
   try {
-    // Build multimodal parts: text prompt + any attached images
-    const imageParts = images.map(img => ({
-      inlineData: { mimeType: img.mimeType, data: img.data },
-    }));
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: prompt }, ...imageParts] }],
-      config: { responseMimeType: 'application/json' },
+    const imageNote = images.length > 0
+      ? `\n\nAttached images: ${images.length}. Use them as contextual metadata only; the specialist agents inspect the actual image content.`
+      : '';
+    const raw = await generateHuggingFaceText(prompt + imageNote, {
+      model: HF_MODEL,
+      maxNewTokens: 512,
+      temperature: 0.1,
     });
-    const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
     const parsed = safeParseJson(raw);
     return {
       product: (parsed.product as string) ?? 'the product',
@@ -231,19 +227,14 @@ Return ONLY valid JSON (no markdown, no fences):
 }`;
 
   try {
-    // Build multimodal parts: text prompt + any attached images
-    const imageParts = images.map(img => ({
-      inlineData: { mimeType: img.mimeType, data: img.data },
-    }));
     const imageNote = images.length > 0
       ? `\nThe user has also attached ${images.length} image(s). Reference their visual content (text, UI elements, charts, pricing tables, etc.) directly in your answer.`
       : '';
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: prompt + imageNote }, ...imageParts] }],
-      config: { responseMimeType: 'application/json' },
+    const raw = await generateHuggingFaceText(prompt + imageNote, {
+      model: HF_MODEL,
+      maxNewTokens: 768,
+      temperature: 0.2,
     });
-    const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
     const parsed = safeParseJson(raw);
     return {
       answer: (parsed.answer as string) || buildFallbackAnswer(outputs, query),
@@ -342,12 +333,11 @@ Return ONLY valid JSON (no markdown, no fences):
 }`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      config: { responseMimeType: 'application/json' },
+    const raw = await generateHuggingFaceText(prompt, {
+      model: HF_MODEL,
+      maxNewTokens: 1024,
+      temperature: 0.15,
     });
-    const raw = response.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
     const parsed = safeParseJson(raw);
 
     const branches = (parsed.branches as MindMapNode[]) ?? [];
@@ -386,9 +376,9 @@ export async function orchestrate(
 ): Promise<OrchestratorOutput> {
   const orchestrationStart = Date.now();
 
-  // Step 1: Classify query and extract context  (1 Gemini call)
+  // Step 1: Classify query and extract context  (1 model call)
   const classification = await classifyQuery(query, history, images, memoryContext);
-  let geminiCallCount = 1;
+  let modelCallCount = 1;
 
   const { product, competitor, productUrl, competitorUrl, intent, runExecution } = classification;
   const allowedAgents = new Set(options?.selectedAgents?.length ? options.selectedAgents : ALL_AGENTS.map(a => a.id));
@@ -466,8 +456,8 @@ export async function orchestrate(
     )
     .map(r => r.value as AgentOutput);
 
-  // Each research agent makes ~1 Gemini call
-  geminiCallCount += agentsToRun.length;
+  // Each research agent makes ~1 model call
+  modelCallCount += agentsToRun.length;
 
   // ── Stage 2: Execution Engine (only if execution intent detected) ──────────
   if (shouldRunExecution) {
@@ -490,7 +480,7 @@ export async function orchestrate(
       execRun.status = 'completed';
       execRun.completedAt = new Date().toISOString();
       outputs.push(executionOutput);
-      geminiCallCount += 3; // 3 sub-agents
+      modelCallCount += 3; // 3 sub-agents
     } catch (err) {
       agentLatencies['execution-engine'] = Date.now() - execStart;
       execRun.status = 'failed';
@@ -499,12 +489,12 @@ export async function orchestrate(
     onAgentUpdate?.(execRun);
   }
 
-  // Step 4: Synthesise + generate mind map in parallel (2 Gemini calls)
+  // Step 4: Synthesise + generate mind map in parallel (2 model calls)
   const [synthesisResult, mindMapResult] = await Promise.all([
     synthesize(query, outputs, history, images, synthesisMemoryContext),
     generateMindMap(query, product, outputs),
   ]);
-  geminiCallCount += 2; // synthesis + mind map
+  modelCallCount += 2; // synthesis + mind map
   const { answer, recommendations, followUps } = synthesisResult;
 
   // Append mind map to outputs if generated successfully
@@ -529,9 +519,9 @@ export async function orchestrate(
   const metrics: RunMetrics = {
     totalLatencyMs: Date.now() - orchestrationStart,
     agentLatencies,
-    estimatedCostUsd: Number.parseFloat((geminiCallCount * EST_COST_PER_GEMINI_CALL).toFixed(5)),
+    estimatedCostUsd: Number.parseFloat((modelCallCount * EST_COST_PER_MODEL_CALL).toFixed(5)),
     toolCallCount,
-    geminiCallCount,
+    geminiCallCount: modelCallCount,
     agentCount: agentRuns.length,
     completedAgentCount: completedAgents,
     failedAgentCount: failedAgents,
