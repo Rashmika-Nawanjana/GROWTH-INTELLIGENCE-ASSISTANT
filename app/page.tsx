@@ -419,6 +419,12 @@ export default function VeracityDashboard() {
     ta.style.height = `${Math.min(ta.scrollHeight, 180)}px`;
   }, []);
 
+  // Keep the textarea height in sync when value is cleared programmatically
+  // (e.g. after sending a long query).
+  useEffect(() => {
+    autoResizeTextarea();
+  }, [inputValue, autoResizeTextarea]);
+
   const allSelected = ALL_DOMAINS.every(d => selectedAgents[d]);
 
   const currentResult  = [...messages].reverse().find(m => m.role === 'assistant');
@@ -599,6 +605,7 @@ export default function VeracityDashboard() {
     setInputValue('');
     setAttachedImages([]);
     setIsLoading(true);
+    requestAnimationFrame(autoResizeTextarea);
 
     const assistantId = Date.now() + 1;
     setMessages(prev => [...prev, { id: assistantId, role: 'assistant', type: 'intelligence', content: '', agentRuns: [] }]);
@@ -926,7 +933,9 @@ export default function VeracityDashboard() {
           background: `linear-gradient(160deg, ${cardBg} 0%, ${cardBg2} 68%, ${cardBg} 100%)`,
           borderRight: sidebarCollapsed ? 'none' : `1px solid ${borderC}`,
           boxShadow: sidebarCollapsed ? 'none' : (isDark ? '0 16px 40px rgba(0,0,0,0.45)' : '0 16px 40px rgba(15,23,42,0.12)'),
-          overflow: 'hidden',
+          // Keep overflow visible so the collapse/expand button is still reachable
+          // even when width is 0.
+          overflow: 'visible',
         }}
       >
 
@@ -942,7 +951,15 @@ export default function VeracityDashboard() {
           {sidebarCollapsed ? <PanelLeft size={14} style={{ color: textMuted }} /> : <PanelLeftClose size={14} style={{ color: textMuted }} />}
         </button>
 
-        <div className="flex flex-col h-full" style={{ width: '300px', opacity: sidebarCollapsed ? 0 : 1, transition: 'opacity 0.2s ease' }}>
+        <div
+          className="flex flex-col h-full"
+          style={{
+            width: '300px',
+            opacity: sidebarCollapsed ? 0 : 1,
+            transition: 'opacity 0.2s ease',
+            overflow: 'hidden',
+          }}
+        >
 
           {/* Logo */}
           <div className="px-5 pt-5 pb-4" style={{ borderBottom: `1px solid ${borderC}` }}>
