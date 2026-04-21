@@ -8,7 +8,7 @@ import {
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Check, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon, Rocket, Fish,
-  ThumbsUp, ThumbsDown, Menu,
+  ThumbsUp, ThumbsDown,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput, RefinementDelta } from '@/lib/agents/types';
@@ -388,7 +388,6 @@ export default function VeracityDashboard() {
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [userMemory, setUserMemory] = useState<UserMemory | null>(null);
   const [mirofishRunning, setMirofishRunning] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedAgents, setSelectedAgents] = useState<Record<Domain, boolean>>(() =>
     Object.fromEntries(ALL_DOMAINS.map(d => [d, true])) as Record<Domain, boolean>
   );
@@ -463,6 +462,13 @@ export default function VeracityDashboard() {
   useEffect(() => {
     if (followUps.length > 0) followUpEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [followUps]);
+
+  useEffect(() => {
+    if (!currentResult?.orchestratorOutput) return;
+    if (expandedDomain && getOutputForDomain(expandedDomain)) return;
+    const firstAvailable = ALL_DOMAINS.find(d => !!getOutputForDomain(d));
+    if (firstAvailable) setExpandedDomain(firstAvailable);
+  }, [currentResult?.orchestratorOutput, expandedDomain]);
 
   const handleSignOut = async () => { await supabase.auth.signOut(); router.push('/auth'); router.refresh(); };
 
@@ -866,6 +872,11 @@ export default function VeracityDashboard() {
   const getOutputForDomain = (d: Domain) => currentResult?.orchestratorOutput?.outputs?.find(o => o.domain === d);
 
   const expandedOutput = expandedDomain ? getOutputForDomain(expandedDomain) : null;
+  const visibleTabDomains = ALL_DOMAINS.filter(d => {
+    const run = getRunForDomain(d);
+    const output = getOutputForDomain(d);
+    return !!run || !!output || d === 'mirofish';
+  });
 
   /* ─ Inline style helpers (from ThemeContext) ─ */
   const sidebarBg  = surface;
@@ -880,39 +891,12 @@ export default function VeracityDashboard() {
     <div className={isDark ? '' : 'light'} style={{ display: 'contents' }}>
     <div className="flex h-screen w-full overflow-hidden" style={{ background: isDark ? '#0a0a0a' : '#f9f9f9', color: textMain, fontFamily: 'inherit' }}>
 
-      {/* Persistent hamburger toggle so menu control is always visible */}
-      <button
-        type="button"
-        onClick={() => setSidebarOpen(v => !v)}
-        aria-label="Toggle sidebar"
-        className="fixed top-3 left-3 z-[70] h-9 px-2.5 rounded-md flex items-center gap-1.5 transition-colors"
-        style={{
-          border: `1px solid ${borderC}`,
-          background: isDark ? 'rgba(17,17,17,0.95)' : 'rgba(255,255,255,0.95)',
-          color: textMuted,
-          backdropFilter: 'blur(8px)',
-          boxShadow: isDark ? '0 6px 16px rgba(0,0,0,0.4)' : '0 6px 16px rgba(15,23,42,0.12)',
-        }}
-      >
-        {sidebarOpen ? <X size={15} /> : <Menu size={15} />}
-        <span className="text-[11px] font-mono hidden sm:inline">menu</span>
-      </button>
-
-      {/* ══ Sidebar overlay backdrop ══ */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/55 backdrop-blur-[1px]"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
       {/* ══════════════════════════════════ SIDEBAR ══ */}
       <aside
         className={[
-          'flex-shrink-0 flex flex-col h-full z-50 transition-transform duration-300 ease-out',
-          'fixed inset-y-0 left-0',
-          'w-[270px] max-w-[84vw]',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full',
+          'flex-shrink-0 flex flex-col h-full',
+          'relative',
+          'w-[300px]',
         ].join(' ')}
         style={{
           background: `linear-gradient(160deg, ${cardBg} 0%, ${cardBg2} 68%, ${cardBg} 100%)`,
@@ -932,7 +916,7 @@ export default function VeracityDashboard() {
         {/* New query */}
         <div className="px-3 pt-3 pb-2.5">
           <button
-            onClick={() => { handleNewQuery(); setSidebarOpen(false); }}
+            onClick={() => { handleNewQuery(); }}
             className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-[13px] font-medium transition-colors focus-ring"
             style={{ background: isDark ? '#1a1a1a' : '#f0f0f0', border: `1px solid ${borderC}`, color: textMain }}
           >
@@ -997,7 +981,7 @@ export default function VeracityDashboard() {
               </div>
               {sessions.slice(0, 8).map((session) => (
                 <div key={session.id} className="relative group flex items-center mb-0.5">
-                  <button onClick={() => { loadSession(session.id); setSidebarOpen(false); }} title={session.title}
+                  <button onClick={() => { loadSession(session.id); }} title={session.title}
                     className="flex-1 text-left text-[12px] px-2 py-1.5 rounded-md truncate transition-colors"
                     style={{ color: currentSessionId === session.id ? textMain : textMuted, paddingRight: '28px' }}
                     onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.color = textMain; b.style.background = isDark ? '#1a1a1a' : '#f0f0f0'; }}
@@ -1046,8 +1030,6 @@ export default function VeracityDashboard() {
         {/* ── Header ── */}
         <header className="shrink-0 flex items-center gap-2 md:gap-3 px-3 md:px-5 py-3 z-20"
           style={{ background: headerBg, borderBottom: `1px solid ${borderC}`, backdropFilter: 'blur(12px)' }}>
-
-          <div className="w-8 shrink-0" />
 
           {/* Search */}
           <div className="flex-1 flex flex-col gap-2">
@@ -1157,8 +1139,8 @@ export default function VeracityDashboard() {
         </header>
 
         {/* ── Body ── */}
-        <div className="flex-1 overflow-y-auto grid-bg" style={{ padding: 'clamp(12px, 3vw, 24px)' }}>
-          <div className="flex flex-col gap-5 max-w-[1200px] w-full mx-auto">
+        <div className="flex-1 overflow-y-auto grid-bg" style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
+          <div className="flex flex-col gap-7 max-w-[1400px] w-full mx-auto">
 
             {/* Empty state */}
             {messages.length === 0 && !isLoading && (
@@ -1188,13 +1170,12 @@ export default function VeracityDashboard() {
               </div>
             )}
 
-            {/* ── Agent Grid ── */}
+            {/* ── Agent Tabs ── */}
             {(currentResult || isLoading) && (
-              <div>
-                {/* Row header */}
-                <div className="flex items-center justify-between mb-3 gap-2">
+              <div className="rounded-xl p-4" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+                <div className="flex items-center justify-between mb-4 gap-3">
                   <div className="flex flex-col gap-2 min-w-0 flex-1">
-                    <p className="text-[13.5px] font-medium truncate" style={{ color: textMain }}>
+                    <p className="text-[14px] font-semibold truncate" style={{ color: textMain }}>
                       {recentQueries[recentQueries.length - 1] ?? 'analysing…'}
                     </p>
                     {messages.filter(m => m.role === 'user').pop()?.images && (
@@ -1227,18 +1208,38 @@ export default function VeracityDashboard() {
                     )}
                   </div>
                 </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {ALL_DOMAINS.map(domain => (
-                    <AgentCard
-                      key={domain}
-                      domain={domain}
-                      run={getRunForDomain(domain)}
-                      output={getOutputForDomain(domain)}
-                      isExpanded={expandedDomain === domain}
-                      onClick={() => { if (getOutputForDomain(domain)) setExpandedDomain(p => p === domain ? null : domain); }}
-                    />
-                  ))}
+                <div className="flex flex-wrap gap-2">
+                  {visibleTabDomains.map(domain => {
+                    const run = getRunForDomain(domain);
+                    const output = getOutputForDomain(domain);
+                    const isActive = expandedDomain === domain;
+                    const status = run?.status ?? (output ? 'completed' : 'idle');
+                    const meta = DOMAIN_META[domain];
+                    return (
+                      <button
+                        key={domain}
+                        onClick={() => setExpandedDomain(domain)}
+                        className="px-3 py-2 rounded-md text-left transition-all border min-w-[138px]"
+                        style={{
+                          borderColor: isActive ? meta.color : borderC,
+                          background: isActive ? (isDark ? meta.bg : meta.bgLight) : cardBg2,
+                          boxShadow: isActive ? `0 0 0 1px ${meta.color}22` : 'none',
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[11px] font-mono font-semibold uppercase tracking-wide" style={{ color: isActive ? meta.color : textSubtle }}>
+                            {meta.short}
+                          </span>
+                          {status === 'running' && <RefreshCw size={11} className="animate-spin" style={{ color: meta.color }} />}
+                          {status === 'completed' && <CheckCircle2 size={11} style={{ color: '#10b981' }} />}
+                          {status === 'failed' && <AlertCircle size={11} style={{ color: '#ef4444' }} />}
+                        </div>
+                        <p className="text-[11px] mt-1" style={{ color: textMuted }}>
+                          {status}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1268,7 +1269,7 @@ export default function VeracityDashboard() {
                   </button>
                 </div>
 
-                <div className="p-5 flex flex-col gap-5">
+                <div className="p-6 lg:p-8 flex flex-col gap-6">
                   <ArtifactRenderer
                     output={expandedOutput}
                     product={currentResult?.orchestratorOutput?.product ?? ''}
@@ -1357,8 +1358,34 @@ export default function VeracityDashboard() {
                   </div>
                 </div>
 
-                <div className="p-5 flex flex-col gap-6">
+                <div className="p-6 lg:p-8 flex flex-col gap-8">
                   <p className="prose-answer">{currentResult.content}</p>
+
+                  {currentResult.orchestratorOutput?.outputs?.length ? (
+                    <div>
+                      <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>
+                        Domain Highlights
+                      </p>
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {currentResult.orchestratorOutput.outputs
+                          .filter(o => o.artifactType !== 'mind-map')
+                          .slice(0, 6)
+                          .map((o, i) => (
+                            <div key={`${o.domain}-${i}`} className="rounded-lg p-4" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-[11px] font-mono font-semibold uppercase tracking-wide" style={{ color: DOMAIN_META[o.domain as Domain]?.color ?? textSubtle }}>
+                                  {DOMAIN_META[o.domain as Domain]?.short ?? o.domain}
+                                </span>
+                                <ConfidenceBadge level={o.confidence} />
+                              </div>
+                              <p className="text-[13px] leading-relaxed" style={{ color: textMuted }}>
+                                {o.interpretation?.[0] || o.facts?.[0] || 'No highlight available.'}
+                              </p>
+                            </div>
+                          ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   {/* Recommendations */}
                   {currentResult.recommendations && currentResult.recommendations.length > 0 && (
