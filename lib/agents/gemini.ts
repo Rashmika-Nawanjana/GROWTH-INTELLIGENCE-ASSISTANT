@@ -5,10 +5,24 @@ const DEFAULT_EMBEDDING_MODEL = 'gemini-embedding-001';
 // returned vector (Gemini docs: normalization is required for <3072 dims).
 const EMBEDDING_DIMENSIONS = Number(process.env.GEMINI_EMBEDDING_DIMENSIONS ?? 768);
 
+// Gemini 2.5 models have built-in "thinking" that consumes output tokens
+// before emitting the actual response. For our agents (data synthesis,
+// classification, structured extraction) thinking is unnecessary and causes
+// JSON truncation on long prompts. We disable it by default, but callers can
+// opt back in via `thinkingBudget`.
+const DEFAULT_THINKING_BUDGET = Number(process.env.GEMINI_THINKING_BUDGET ?? 0);
+
+// Raised defaults: the previous 1024/1400 limits were too low for complex
+// agent outputs (matrices, distributions, contributingSignals) once thinking
+// tokens were removed we still want room for large structured responses.
+const DEFAULT_TEXT_MAX_OUTPUT = 2048;
+const DEFAULT_JSON_MAX_OUTPUT = 4096;
+
 type GeminiOptions = {
   model?: string;
   maxNewTokens?: number;
   temperature?: number;
+  thinkingBudget?: number; // override per-call; 0 disables, -1 = dynamic
 };
 
 function safePreview(value: string, maxLength = 300): string {
@@ -25,6 +39,21 @@ function generationUrl(model: string, apiKey: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
 }
 
+function buildGenerationConfig(
+  options: GeminiOptions,
+  defaultMax: number,
+  responseMimeType?: string,
+): Record<string, unknown> {
+  const budget = options.thinkingBudget ?? DEFAULT_THINKING_BUDGET;
+  const config: Record<string, unknown> = {
+    temperature: options.temperature ?? 0.2,
+    maxOutputTokens: options.maxNewTokens ?? defaultMax,
+    thinkingConfig: { thinkingBudget: budget },
+  };
+  if (responseMimeType) config.responseMimeType = responseMimeType;
+  return config;
+}
+
 export async function generateHuggingFaceText(
   prompt: string,
   options: GeminiOptions = {},
@@ -37,10 +66,7 @@ export async function generateHuggingFaceText(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: options.temperature ?? 0.2,
-        maxOutputTokens: options.maxNewTokens ?? 1024,
-      },
+      generationConfig: buildGenerationConfig(options, DEFAULT_TEXT_MAX_OUTPUT),
     }),
   });
 
@@ -97,7 +123,6 @@ export async function embedTextWithHuggingFace(text: string): Promise<number[] |
   const values = parsed.embedding?.values;
   if (!Array.isArray(values)) return null;
 
-  // Gemini requires re-normalization when outputDimensionality < 3072.
   if (EMBEDDING_DIMENSIONS < 3072) {
     const norm = Math.sqrt(values.reduce((s, v) => s + v * v, 0));
     if (norm > 0) {
@@ -125,11 +150,7 @@ export async function generateHuggingFaceJson<T = Record<string, unknown>>(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       contents: [{ parts: [{ text: combined }] }],
-      generationConfig: {
-        temperature: options.temperature ?? 0.2,
-        maxOutputTokens: options.maxNewTokens ?? 1400,
-        responseMimeType: 'application/json',
-      },
+      generationConfig: buildGenerationConfig(options, DEFAULT_JSON_MAX_OUTPUT, 'application/json'),
     }),
   });
 
@@ -138,15 +159,24 @@ export async function generateHuggingFaceJson<T = Record<string, unknown>>(
     throw new Error(`Gemini JSON generateContent failed (${response.status}): ${safePreview(raw)}`);
   }
 
-  let parsed: { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  let parsed: {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> };
+      finishReason?: string;
+    }>;
+  };
   try {
     parsed = JSON.parse(raw) as typeof parsed;
   } catch {
     throw new Error(`Gemini response is not valid JSON: ${safePreview(raw)}`);
   }
 
-  const text = parsed.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? '';
-  if (!text) throw new Error('Gemini returned empty JSON response');
+  const candidate = parsed.candidates?.[0];
+  const text = candidate?.content?.parts?.[0]?.text?.trim() ?? '';
+  if (!text) {
+    const reason = candidate?.finishReason ?? 'unknown';
+    throw new Error(`Gemini returned empty JSON response (finishReason: ${reason})`);
+  }
 
   try {
     return JSON.parse(text) as T;
