@@ -96,30 +96,16 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
   }
 
   if (!result && attemptsMade < policy.maxAttempts) {
-    // Attempt 3: Direct fetch fallback
+    // Attempt 3: Scrape.do (free tier — anti-bot, proxy rotation, optional JS render)
     await delay(computeRetryDelay(policy, attemptsMade));
-    result = await (async () => {
-      try {
-        const res = await fetch(url, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GrowthIntelBot/1.0)' },
-        });
-        const html = await res.text();
-        const text = html
-          .replace(/<script[\s\S]*?<\/script>/gi, '')
-          .replace(/<style[\s\S]*?<\/style>/gi, '')
-          .replace(/<[^>]+>/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 5000);
+    result = await scrapeDoFetch(url);
+    attemptsMade++;
+  }
 
-        const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
-        const pageTitle = titleMatch ? titleMatch[1] : url;
-
-        return text.trim().length > 50 ? { markdown: text, title: pageTitle } : null;
-      } catch {
-        return null;
-      }
-    })();
+  if (!result && attemptsMade < policy.maxAttempts) {
+    // Attempt 4: Smart direct fetch (rotating UA, realistic headers, structured extraction)
+    await delay(computeRetryDelay(policy, attemptsMade));
+    result = await smartDirectFetch(url);
     attemptsMade++;
   }
 
@@ -169,51 +155,162 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
   return result_final;
 }
 
-async function scrapeBasic(url: string): Promise<ToolResult<ScrapedPage>> {
+// ── Scrape.do fallback (free tier: 1000 req/month, anti-bot + proxy rotation) ──
+const SCRAPE_DO_BASE = 'https://api.scrape.do';
+
+function needsJsRender(url: string): boolean {
+  const spaPatterns = [
+    /facebook\.com/i, /linkedin\.com/i, /twitter\.com/i, /x\.com/i,
+    /app\./i, /dashboard\./i, /portal\./i,
+  ];
+  return spaPatterns.some(p => p.test(url));
+}
+
+async function scrapeDoFetch(url: string): Promise<{ markdown: string; title: string } | null> {
+  const token = process.env.SCRAPE_DO_TOKEN;
+  if (!token) return null;
+
+  try {
+    const params = new URLSearchParams({
+      token,
+      url,
+      output: 'markdown',
+    });
+    if (needsJsRender(url)) {
+      params.set('render', 'true');
+      params.set('waitUntil', 'domcontentloaded');
+    }
+
+    const res = await fetch(`${SCRAPE_DO_BASE}/?${params.toString()}`, {
+      signal: AbortSignal.timeout(25_000),
+    });
+
+    if (!res.ok) return null;
+
+    const markdown = await res.text();
+    if (!markdown || markdown.trim().length < 50) return null;
+
+    const titleMatch = markdown.match(/^#\s+(.+)$/m);
+    const title = titleMatch?.[1]?.trim() || url;
+
+    return { markdown: markdown.trim().slice(0, 8000), title };
+  } catch {
+    return null;
+  }
+}
+
+// ── Smart direct fetch with rotating UA + structured extraction ──────────────
+const USER_AGENTS = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+];
+
+function randomUA(): string {
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+function extractMainContent(html: string): string {
+  // Try to extract from semantic containers first
+  const mainSelectors = [
+    /<main[^>]*>([\s\S]*?)<\/main>/gi,
+    /<article[^>]*>([\s\S]*?)<\/article>/gi,
+    /<div[^>]*role=["']main["'][^>]*>([\s\S]*?)<\/div>/gi,
+    /<div[^>]*class=["'][^"']*content[^"']*["'][^>]*>([\s\S]*?)<\/div>/gi,
+  ];
+
+  for (const selector of mainSelectors) {
+    const match = selector.exec(html);
+    if (match?.[1] && match[1].length > 200) {
+      return stripHtmlToText(match[1]);
+    }
+  }
+
+  // Fallback: strip everything but remove nav/header/footer first
+  const cleaned = html
+    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+    .replace(/<header[\s\S]*?<\/header>/gi, '')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+    .replace(/<aside[\s\S]*?<\/aside>/gi, '')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, '');
+
+  return stripHtmlToText(cleaned);
+}
+
+function stripHtmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<svg[\s\S]*?<\/svg>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function smartDirectFetch(url: string): Promise<{ markdown: string; title: string } | null> {
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GrowthIntelBot/1.0)' },
+      headers: {
+        'User-Agent': randomUA(),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(15_000),
     });
+
+    if (!res.ok) return null;
+
     const html = await res.text();
-    // Strip tags naively
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .slice(0, 3000);
+    const text = extractMainContent(html).slice(0, 6000);
 
     const titleMatch = html.match(/<title[^>]*>(.*?)<\/title>/i);
-    const title = titleMatch ? titleMatch[1] : url;
+    const metaDesc = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([^"']+)["']/i);
+    const pageTitle = titleMatch?.[1]?.trim() || url;
 
-    const page: ScrapedPage = {
-      url,
-      title,
-      markdown: text,
-      excerpt: text.slice(0, 500),
-    };
+    if (text.length < 50) return null;
 
-    return buildToolResult<ScrapedPage>({
-      data: page,
-      status: 'degraded',
-      source: 'Direct Scrape (fallback)',
-      sourceUrl: url,
-    });
+    const markdown = metaDesc?.[1]
+      ? `${metaDesc[1].trim()}\n\n${text}`
+      : text;
+
+    return { markdown, title: pageTitle };
   } catch {
-    const page: ScrapedPage = {
-      url,
-      title: url,
-      markdown: '',
-      excerpt: 'Could not scrape this page.',
-    };
-    return buildToolResult<ScrapedPage>({
-      data: page,
-      status: 'failed',
-      source: 'Direct Scrape (failed)',
-      sourceUrl: url,
-    });
+    return null;
   }
+}
+
+async function scrapeBasic(url: string): Promise<ToolResult<ScrapedPage>> {
+  // Try Scrape.do first (if token available), then smart direct fetch
+  const scrapeDo = await scrapeDoFetch(url);
+  if (scrapeDo) {
+    const page: ScrapedPage = { url, title: scrapeDo.title, markdown: scrapeDo.markdown, excerpt: scrapeDo.markdown.slice(0, 500) };
+    return buildToolResult<ScrapedPage>({ data: page, status: 'degraded', source: 'Scrape.do (no Firecrawl key)', sourceUrl: url });
+  }
+
+  const direct = await smartDirectFetch(url);
+  if (direct) {
+    const page: ScrapedPage = { url, title: direct.title, markdown: direct.markdown, excerpt: direct.markdown.slice(0, 500) };
+    return buildToolResult<ScrapedPage>({ data: page, status: 'degraded', source: 'Direct Scrape (fallback)', sourceUrl: url });
+  }
+
+  const page: ScrapedPage = { url, title: url, markdown: '', excerpt: 'Could not scrape this page.' };
+  return buildToolResult<ScrapedPage>({ data: page, status: 'failed', source: 'Direct Scrape (failed)', sourceUrl: url });
 }
 
 export async function scrapeCompetitorPricing(productUrl: string): Promise<ToolResult<ScrapedPage>> {
