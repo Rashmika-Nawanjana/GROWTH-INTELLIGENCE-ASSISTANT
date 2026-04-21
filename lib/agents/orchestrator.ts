@@ -356,7 +356,7 @@ Return ONLY valid JSON (no markdown, no fences):
 
   try {
     const raw = await generateHuggingFaceText(prompt, {
-      maxNewTokens: 1024,
+      maxNewTokens: 2048,
       temperature: 0.15,
     });
     const parsed = safeParseJson(raw);
