@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { TrendingUp, TrendingDown, Minus, Fish, ChevronDown, ChevronUp } from 'lucide-react';
+import { TrendingUp, TrendingDown, Minus, Fish, ChevronDown, ChevronUp, Sparkles, Gauge } from 'lucide-react';
 import type { ForecastOutput, ForecastSignal, DistributionBucket } from '@/lib/agents/types';
 import { useTheme } from '@/lib/theme-provider';
 
@@ -212,10 +212,14 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
   const ciHiPct = Math.round(confidenceHigh * 100);
 
   const unitLabel = unit === 'probability' ? '%' : unit === 'percent' ? '%' : '';
+  const positiveBuckets = distribution.filter(b => /positive/i.test(b.label)).reduce((s, b) => s + b.count, 0);
+  const negativeBuckets = distribution.filter(b => /negative/i.test(b.label)).reduce((s, b) => s + b.count, 0);
+  const neutralBuckets = distribution.filter(b => /neutral/i.test(b.label)).reduce((s, b) => s + b.count, 0);
+  const topSignal = contributingSignals?.[0];
 
   return (
     <div
-      className="veracity-card p-5 flex flex-col gap-4 w-full max-w-2xl text-sm"
+      className="veracity-card p-6 lg:p-7 flex flex-col gap-5 w-full text-[15px]"
       style={{ background: cardBg, border: `1px solid ${accentBorder}`, boxShadow: `0 0 0 1px ${accentColor}1a` }}
     >
       {/* Header */}
@@ -226,7 +230,7 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
             <div className="text-[10px] font-mono uppercase tracking-wider mb-0.5" style={{ color: accentColor }}>
               MiroFish · Swarm Forecast
             </div>
-            <div className="font-medium text-sm leading-snug" style={{ color: textMain }}>
+            <div className="font-semibold text-[16px] leading-snug" style={{ color: textMain }}>
               {question}
             </div>
           </div>
@@ -241,7 +245,7 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
 
       {/* Headline metrics */}
       <div
-        className="rounded-xl p-4 flex items-center gap-6"
+        className="rounded-xl p-5 flex items-center gap-6"
         style={{ background: accentBg, border: `1px solid ${accentBorder}` }}
       >
         {/* Direction + point estimate */}
@@ -249,7 +253,7 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
           <DirectionIcon direction={direction} />
           <div>
             <div
-              className="text-3xl font-mono font-bold leading-none"
+              className="text-4xl font-mono font-bold leading-none"
               style={{ color: directionColor(direction) }}
             >
               {pct}{unitLabel}
@@ -284,6 +288,46 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
         </div>
       </div>
 
+      {/* Quick insight cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div className="rounded-xl p-4" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+          <div className="flex items-center gap-2 mb-1">
+            <Gauge size={14} style={{ color: accentColor }} />
+            <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>Forecast Strength</span>
+          </div>
+          <p className="text-[18px] font-semibold" style={{ color: textMain }}>
+            {direction === 'up' ? 'Bullish' : direction === 'down' ? 'Bearish' : 'Neutral'}
+          </p>
+          <p className="text-[12px]" style={{ color: textMuted }}>
+            {ciLoPct}% to {ciHiPct}% confidence band
+          </p>
+        </div>
+        <div className="rounded-xl p-4" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+          <div className="flex items-center gap-2 mb-1">
+            <Sparkles size={14} style={{ color: '#10b981' }} />
+            <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>Swarm Tilt</span>
+          </div>
+          <p className="text-[18px] font-semibold" style={{ color: textMain }}>
+            +{positiveBuckets} / -{negativeBuckets}
+          </p>
+          <p className="text-[12px]" style={{ color: textMuted }}>
+            {neutralBuckets} neutral personas
+          </p>
+        </div>
+        <div className="rounded-xl p-4" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+          <div className="flex items-center gap-2 mb-1">
+            <Fish size={14} style={{ color: accentColor }} />
+            <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>Top Driver</span>
+          </div>
+          <p className="text-[14px] font-semibold line-clamp-1" style={{ color: textMain }}>
+            {topSignal?.persona ?? 'No dominant persona'}
+          </p>
+          <p className="text-[12px]" style={{ color: textMuted }}>
+            Weight {topSignal ? `${topSignal.weight >= 0 ? '+' : ''}${topSignal.weight.toFixed(2)}` : 'n/a'}
+          </p>
+        </div>
+      </div>
+
       {/* Distribution histogram */}
       {distribution?.length > 0 && (
         <div className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
@@ -298,13 +342,30 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
         </div>
       )}
 
+      {/* Main key points */}
+      {(interpretation.length > 0 || facts.length > 0) && (
+        <div className="rounded-xl p-5" style={{ background: accentBg, border: `1px solid ${accentBorder}` }}>
+          <div className="text-[10px] font-mono uppercase tracking-wider mb-3" style={{ color: accentColor }}>
+            Key Points
+          </div>
+          <ul className="flex flex-col gap-2">
+            {[...interpretation, ...facts].slice(0, 4).map((item, i) => (
+              <li key={i} className="text-[14px] leading-relaxed flex items-start gap-2" style={{ color: textMain }}>
+                <span style={{ color: accentColor }}>•</span>
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {/* Rationale */}
       {rationale && (
         <div className="rounded-xl p-4" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
           <div className="text-[10px] font-mono uppercase tracking-wider mb-2" style={{ color: textMuted }}>
             Rationale
           </div>
-          <p className="text-sm leading-relaxed" style={{ color: textMain }}>
+          <p className="text-[14px] leading-relaxed" style={{ color: textMain }}>
             {rationale}
           </p>
         </div>
@@ -320,7 +381,7 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
               </div>
               <ul className="flex flex-col gap-1">
                 {facts.map((f, i) => (
-                  <li key={i} className="text-xs flex gap-1.5" style={{ color: textMain }}>
+                  <li key={i} className="text-[13px] flex gap-1.5" style={{ color: textMain }}>
                     <span style={{ color: accentColor }}>›</span>
                     <span>{f}</span>
                   </li>
@@ -335,7 +396,7 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
               </div>
               <ul className="flex flex-col gap-1">
                 {interpretation.map((s, i) => (
-                  <li key={i} className="text-xs flex gap-1.5" style={{ color: textMain }}>
+                  <li key={i} className="text-[13px] flex gap-1.5" style={{ color: textMain }}>
                     <span style={{ color: accentColor }}>›</span>
                     <span>{s}</span>
                   </li>

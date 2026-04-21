@@ -1245,7 +1245,7 @@ export default function VeracityDashboard() {
             )}
 
             {/* ── Expanded domain ── */}
-            {expandedDomain && expandedOutput && (
+            {expandedDomain && (
               <div className="rounded-lg overflow-hidden" style={{
                 border: `1px solid ${DOMAIN_META[expandedDomain].border}`,
                 background: cardBg,
@@ -1258,7 +1258,7 @@ export default function VeracityDashboard() {
                     <span className="text-[14px] font-semibold" style={{ color: textMain }}>
                       {DOMAIN_META[expandedDomain].label}
                     </span>
-                    <ConfidenceBadge level={expandedOutput.confidence} />
+                    {expandedOutput && <ConfidenceBadge level={expandedOutput.confidence} />}
                   </div>
                   <button onClick={() => setExpandedDomain(null)}
                     className="p-1.5 rounded-md transition-colors"
@@ -1270,15 +1270,26 @@ export default function VeracityDashboard() {
                 </div>
 
                 <div className="p-6 lg:p-8 flex flex-col gap-6">
-                  <ArtifactRenderer
-                    output={expandedOutput}
-                    product={currentResult?.orchestratorOutput?.product ?? ''}
-                    sessionId={currentSessionId}
-                    messageId={currentResult?.persistedId ?? null}
-                    onRefined={handleExecutionPlanRefined}
-                  />
+                  {expandedOutput ? (
+                    <ArtifactRenderer
+                      output={expandedOutput}
+                      product={currentResult?.orchestratorOutput?.product ?? ''}
+                      sessionId={currentSessionId}
+                      messageId={currentResult?.persistedId ?? null}
+                      onRefined={handleExecutionPlanRefined}
+                    />
+                  ) : (
+                    <div className="rounded-xl p-6" style={{ border: `1px solid ${borderC}`, background: cardBg2 }}>
+                      <p className="text-sm font-semibold mb-2" style={{ color: textMain }}>
+                        {DOMAIN_META[expandedDomain].short} details are loading
+                      </p>
+                      <p className="text-[13px] leading-relaxed" style={{ color: textMuted }}>
+                        This agent is still running or returned no structured artifact yet. Try rerunning with MiroFish enabled and a forecast-style prompt.
+                      </p>
+                    </div>
+                  )}
 
-                  {expandedOutput.facts.filter(f => !f.startsWith('[')).length > 0 && (
+                  {expandedOutput && expandedOutput.facts.filter(f => !f.startsWith('[')).length > 0 && (
                     <div>
                       <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>Key Facts</p>
                       <ul className="flex flex-col gap-2.5">
@@ -1291,7 +1302,7 @@ export default function VeracityDashboard() {
                     </div>
                   )}
 
-                  {expandedOutput.interpretation.length > 0 && (
+                  {expandedOutput && expandedOutput.interpretation.length > 0 && (
                     <div>
                       <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>Analysis</p>
                       <ul className="flex flex-col gap-2.5">
