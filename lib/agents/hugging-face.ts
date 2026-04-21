@@ -10,7 +10,7 @@ type HuggingFaceResponse =
   | { choices?: Array<{ message?: { content?: string } }> }
   | string;
 
-const DEFAULT_MODEL = 'Qwen/Qwen2.5-7B-Instruct';
+const DEFAULT_MODEL = 'Qwen/Qwen3-32B';
 const DEFAULT_EMBEDDING_MODEL = 'sentence-transformers/all-MiniLM-L6-v2';
 
 function safePreview(value: string, maxLength = 300): string {
@@ -28,9 +28,11 @@ function extractText(payload: HuggingFaceResponse): string {
     return first.generated_text ?? first.text ?? '';
   }
 
-  const choiceText = payload.choices?.[0]?.message?.content;
-  if (typeof choiceText === 'string') {
-    return choiceText;
+  if ('choices' in payload) {
+    const choiceText = payload.choices?.[0]?.message?.content;
+    if (typeof choiceText === 'string') {
+      return choiceText;
+    }
   }
 
   return payload.generated_text ?? payload.text ?? '';
