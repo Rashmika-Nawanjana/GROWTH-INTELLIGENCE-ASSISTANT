@@ -35,7 +35,11 @@ function extractText(payload: HuggingFaceResponse): string {
     }
   }
 
-  return payload.generated_text ?? payload.text ?? '';
+  if ('generated_text' in payload || 'text' in payload) {
+    return payload.generated_text ?? payload.text ?? '';
+  }
+
+  return '';
 }
 
 export async function generateHuggingFaceText(
