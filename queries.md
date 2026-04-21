@@ -14,6 +14,7 @@ Web Search Templates
 site:linkedin.com "[CATEGORY]" ("new pricing" OR USP OR "just launched") 2026
 
 
+
 2. Signal Stage – Audience & Intent Signals (pain points, sentiment, hiring trends)
 X Advanced Keyword Templates
 text"[CATEGORY]" OR "autonomous [CATEGORY]" OR "[PRODUCT_NAME]"
