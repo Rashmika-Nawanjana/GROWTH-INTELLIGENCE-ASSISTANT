@@ -103,7 +103,7 @@ Use this ownership model to maximize judging score in the final sprint.
 - Day 3:
   - Full-team integration + scripted demo rehearsal (Vector Agents + one non-Vector product)
 
---- 
+---  
 
 ## The Two-Stage Architecture
 
