@@ -13,15 +13,19 @@ import type {
 } from './types';
 import { scoreToLevel } from './types';
 import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
+import {
+  competitorSiteUrl,
+  isUsableScrapePage,
+  productSiteUrl,
+  skippedScrapePromise,
+} from './entity-url';
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
-  const { query, product, competitor, competitorUrl, productUrl, priorContext } = ctx;
+  const { query, product, competitor, priorContext } = ctx;
 
-  const competitorName = competitor ?? 'main competitor';
-  const compUrl = competitorUrl ??
-    `https://${competitorName.toLowerCase().replace(/\s+/g, '')}.com`;
-  const prodUrl = productUrl ??
-    `https://${product.toLowerCase().replace(/\s+/g, '')}.com`;
+  const competitorName = competitor ?? 'relevant competitors';
+  const compUrl = competitorSiteUrl(ctx);
+  const prodUrl = productSiteUrl(ctx);
 
   // ── Parallel data fetch ────────────────────────────────────────────────────
   const [
@@ -32,8 +36,8 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     pricingNewsResult,
   ] = await Promise.allSettled([
     searchWeb(`${competitorName} pricing plans cost per seat 2025`),
-    scrapeCompetitorPricing(compUrl),
-    scrapeCompetitorPricing(prodUrl),
+    compUrl ? scrapeCompetitorPricing(compUrl) : skippedScrapePromise(),
+    prodUrl ? scrapeCompetitorPricing(prodUrl) : skippedScrapePromise(),
     searchReddit(`${competitorName} pricing expensive cheap worth it`),
     searchWeb(`${product} OR ${competitorName} pricing model SaaS willingness to pay`),
   ]);
@@ -48,14 +52,16 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
       rawContent.push(`[PRICING WEB] ${r.title}: ${r.snippet}`);
     });
   }
-  if (compPricingResult.status === 'fulfilled') {
+  if (isUsableScrapePage(compPricingResult)) {
     const page = compPricingResult.value.data;
-    sources.push({ url: page.url, title: `${competitorName} Pricing Page`, timestamp: compPricingResult.value.timestamp, tool: 'firecrawl' });
+    const title = competitor ? `${competitor} — pricing page` : 'Competitor pricing page';
+    sources.push({ url: page.url, title, timestamp: compPricingResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[COMPETITOR PRICING PAGE] ${page.excerpt}`);
   }
-  if (prodPricingResult.status === 'fulfilled') {
+  if (isUsableScrapePage(prodPricingResult)) {
     const page = prodPricingResult.value.data;
-    sources.push({ url: page.url, title: `${product} Pricing Page`, timestamp: prodPricingResult.value.timestamp, tool: 'firecrawl' });
+    const title = product.length < 50 ? `${product} — pricing page` : 'Product pricing page';
+    sources.push({ url: page.url, title, timestamp: prodPricingResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[OUR PRICING PAGE] ${page.excerpt}`);
   }
   if (redditPricingResult.status === 'fulfilled') {

@@ -13,15 +13,19 @@ import type {
 } from './types';
 import { scoreToLevel } from './types';
 import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
+import {
+  competitorSiteUrl,
+  isUsableScrapePage,
+  productSiteUrl,
+  skippedScrapePromise,
+} from './entity-url';
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
-  const { query, product, competitor, competitorUrl, productUrl, priorContext } = ctx;
+  const { query, product, competitor, priorContext } = ctx;
 
-  const competitorName = competitor ?? 'main competitor';
-  const compUrl = competitorUrl ??
-    `https://${competitorName.toLowerCase().replace(/\s+/g, '')}.com`;
-  const prodUrl = productUrl ??
-    `https://${product.toLowerCase().replace(/\s+/g, '')}.com`;
+  const competitorName = competitor ?? 'relevant competitors';
+  const compUrl = competitorSiteUrl(ctx);
+  const prodUrl = productSiteUrl(ctx);
 
   // ── Parallel data fetch ────────────────────────────────────────────────────
   const [
@@ -33,8 +37,8 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     redditPerceptionResult,
     socialVoiceResult,
   ] = await Promise.allSettled([
-    scrapePage(compUrl),
-    scrapePage(prodUrl),
+    compUrl ? scrapePage(compUrl) : skippedScrapePromise(),
+    prodUrl ? scrapePage(prodUrl) : skippedScrapePromise(),
     searchAdsTransparency(competitorName),
     searchAdsTransparency(product),
     searchWeb(`${competitorName} vs ${product} messaging positioning marketing`),
@@ -42,30 +46,34 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     searchWeb(`${competitorName} OR ${product} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com positioning messaging`),
   ]);
 
-  // Scrape about/story pages for deeper positioning signals
+  const compAboutUrl = compUrl ? `${compUrl.replace(/\/$/, '')}/about` : '';
+  const prodAboutUrl = prodUrl ? `${prodUrl.replace(/\/$/, '')}/about` : '';
+
   const [compAboutResult, prodAboutResult] = await Promise.allSettled([
-    scrapePage(`${compUrl.replace(/\/$/, '')}/about`),
-    scrapePage(`${prodUrl.replace(/\/$/, '')}/about`),
+    compAboutUrl ? scrapePage(compAboutUrl) : skippedScrapePromise(),
+    prodAboutUrl ? scrapePage(prodAboutUrl) : skippedScrapePromise(),
   ]);
 
   // ── Collect sources ────────────────────────────────────────────────────────
   const sources: AgentSource[] = [];
   const rawContent: string[] = [];
 
-  if (compHomeResult.status === 'fulfilled') {
+  if (isUsableScrapePage(compHomeResult)) {
     const page = compHomeResult.value.data;
-    sources.push({ url: page.url, title: `${competitorName} Homepage`, timestamp: compHomeResult.value.timestamp, tool: 'firecrawl' });
+    const title = competitor ? `${competitor} — homepage` : 'Competitor homepage';
+    sources.push({ url: page.url, title, timestamp: compHomeResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[COMPETITOR HOMEPAGE] ${page.excerpt}`);
   }
-  if (prodHomeResult.status === 'fulfilled') {
+  if (isUsableScrapePage(prodHomeResult)) {
     const page = prodHomeResult.value.data;
-    sources.push({ url: page.url, title: `${product} Homepage`, timestamp: prodHomeResult.value.timestamp, tool: 'firecrawl' });
+    const title = product.length < 50 ? `${product} — homepage` : 'Product homepage';
+    sources.push({ url: page.url, title, timestamp: prodHomeResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[OUR HOMEPAGE] ${page.excerpt}`);
   }
-  if (compAboutResult.status === 'fulfilled') {
+  if (isUsableScrapePage(compAboutResult)) {
     rawContent.push(`[COMPETITOR ABOUT] ${compAboutResult.value.data.excerpt}`);
   }
-  if (prodAboutResult.status === 'fulfilled') {
+  if (isUsableScrapePage(prodAboutResult)) {
     rawContent.push(`[OUR ABOUT] ${prodAboutResult.value.data.excerpt}`);
   }
   if (compAdsResult.status === 'fulfilled') {

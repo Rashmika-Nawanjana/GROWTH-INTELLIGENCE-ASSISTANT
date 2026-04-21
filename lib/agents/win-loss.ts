@@ -14,22 +14,20 @@ import type {
 } from './types';
 import { scoreToLevel } from './types';
 import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
+import { isPlaceholderCompetitor, isUsableScrapePage, skippedScrapePromise } from './entity-url';
 
-// G2 and Capterra review page patterns
-function getReviewUrls(product: string, competitor: string): string[] {
-  const slug = (s: string) => s.toLowerCase().replace(/\s+/g, '-');
-  return [
-    `https://www.g2.com/products/${slug(competitor)}/reviews`,
-    `https://www.capterra.com/p/search/?q=${encodeURIComponent(competitor)}`,
-  ];
+function g2ReviewsUrl(competitorBrand: string): string {
+  const slug = competitorBrand.toLowerCase().replace(/\s+/g, '-');
+  return `https://www.g2.com/products/${slug}/reviews`;
 }
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
   const { query, product, competitor, priorContext } = ctx;
 
-  const competitorName = competitor ?? 'main competitor';
-
-  const reviewUrls = getReviewUrls(product, competitorName);
+  const competitorName = competitor ?? 'relevant competitors';
+  const g2Url = !isPlaceholderCompetitor(competitor) && competitor?.trim()
+    ? g2ReviewsUrl(competitor)
+    : null;
 
   // ── Parallel data fetch ────────────────────────────────────────────────────
   const [
@@ -44,7 +42,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     searchProductReviews(product),
     searchProductReviews(competitorName),
     searchHN(`${competitorName} ${product} review comparison`),
-    scrapePage(reviewUrls[0]),
+    g2Url ? scrapePage(g2Url) : skippedScrapePromise(),
     searchWeb(`${competitorName} vs ${product} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com review comparison buyer feedback`),
   ]);
 
@@ -81,9 +79,9 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
       rawContent.push(`[HN] ${p.title}`);
     });
   }
-  if (g2ScrapeResult.status === 'fulfilled') {
+  if (isUsableScrapePage(g2ScrapeResult) && competitor) {
     const page = g2ScrapeResult.value.data;
-    sources.push({ url: page.url, title: `${competitorName} G2 Reviews`, timestamp: g2ScrapeResult.value.timestamp, tool: 'firecrawl' });
+    sources.push({ url: page.url, title: `${competitor} — G2 reviews`, timestamp: g2ScrapeResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[G2 REVIEWS] ${page.excerpt}`);
   }
   if (socialReviewResult.status === 'fulfilled') {

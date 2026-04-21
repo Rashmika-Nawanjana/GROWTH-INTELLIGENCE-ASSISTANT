@@ -2,6 +2,11 @@ import { searchWeb, searchNews } from '../tools/serpapi';
 import { scrapePage, scrapeCompetitorPricing } from '../tools/firecrawl';
 import { searchHN } from '../tools/hn-algolia';
 import { generateHuggingFaceJson } from './gemini';
+import {
+  competitorSiteUrl,
+  isUsableScrapePage,
+  skippedScrapePromise,
+} from './entity-url';
 import type {
   AgentConfig,
   AgentContext,
@@ -15,20 +20,18 @@ import { scoreToLevel } from './types';
 import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
-  const { query, product, competitor, competitorUrl, priorContext } = ctx;
+  const { query, product, competitor, priorContext } = ctx;
 
-  const competitorName = competitor ?? 'main competitor';
-  // Infer competitor URL if not provided
-  const compUrl = competitorUrl ??
-    `https://${competitorName.toLowerCase().replace(/\s+/g, '')}.com`;
+  const competitorName = competitor ?? 'relevant competitors';
+  const compUrl = competitorSiteUrl(ctx);
 
   // ── Parallel data fetch ────────────────────────────────────────────────────
   const [webResult, newsResult, hnResult, scrapeResult, pricingResult, socialSignalsResult] = await Promise.allSettled([
     searchWeb(`${competitorName} features product update 2025 2026`),
     searchNews(`${competitorName} funding launch product announcement 2025`),
     searchHN(`${competitorName} ${product}`),
-    scrapePage(compUrl),
-    scrapeCompetitorPricing(compUrl),
+    compUrl ? scrapePage(compUrl) : skippedScrapePromise(),
+    compUrl ? scrapeCompetitorPricing(compUrl) : skippedScrapePromise(),
     searchWeb(`${competitorName} ${product} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com launch feature feedback`),
   ]);
 
@@ -59,14 +62,15 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
       rawContent.push(`[HN] ${p.title}`);
     });
   }
-  if (scrapeResult.status === 'fulfilled') {
+  if (isUsableScrapePage(scrapeResult)) {
     const page = scrapeResult.value.data;
-    sources.push({ url: page.url, title: page.title, timestamp: scrapeResult.value.timestamp, tool: 'firecrawl' });
+    sources.push({ url: page.url, title: page.title || competitorName, timestamp: scrapeResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[COMPETITOR HOMEPAGE] ${page.excerpt}`);
   }
-  if (pricingResult.status === 'fulfilled') {
+  if (isUsableScrapePage(pricingResult)) {
     const page = pricingResult.value.data;
-    sources.push({ url: page.url, title: `${competitorName} Pricing`, timestamp: pricingResult.value.timestamp, tool: 'firecrawl' });
+    const label = competitor ? `${competitor} pricing` : 'Competitor pricing page';
+    sources.push({ url: page.url, title: label, timestamp: pricingResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[COMPETITOR PRICING] ${page.excerpt}`);
   }
   if (socialSignalsResult.status === 'fulfilled') {

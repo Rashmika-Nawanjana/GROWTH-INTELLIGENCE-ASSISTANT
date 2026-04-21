@@ -8,6 +8,15 @@ const BLOCKED_DOMAINS = [
   'localhost',
   '127.0.0.1',
 
+  // Placeholder competitor / product URL guesses (never real brands)
+  'maincompetitor.com',
+  'relevantcompetitors.com',
+  'theproduct.com',
+  'thecurrentproduct.com',
+  'ourproduct.com',
+  'yourproduct.com',
+  'peerproducts.com',
+
   // Search engine result pages (not primary sources)
   'google.com/search',
   'google.com/sorry',
