@@ -15,7 +15,7 @@
 import { useState, useCallback } from 'react';
 import { Mail, Linkedin, Target, BookOpen, Calendar, CheckCircle2, Circle, ArrowRight, Copy, Check, RefreshCw, BarChart3, ChevronDown } from 'lucide-react';
 import { useTheme } from '@/lib/theme-provider';
-import type { ExecutionPlanOutput, CampaignVariant, OrchestratorOutput, RefinementDelta } from '../../lib/agents/types';
+import type { AgentSource, ExecutionPlanOutput, CampaignVariant, OrchestratorOutput, RefinementDelta } from '../../lib/agents/types';
 import { recordVariantResult, refineExecutionPlan } from '@/lib/feedback';
 
 interface Props {
@@ -69,6 +69,30 @@ const PRIORITY_COLORS: Record<string, string> = {
   ads:      '#f59e0b',
 };
 
+const SOURCE_TOOL_LABELS: Record<AgentSource['tool'], string> = {
+  serpapi: 'web',
+  firecrawl: 'pages',
+  reddit: 'reddit',
+  hn: 'hn',
+  synthesis: 'synthesis',
+  mirofish: 'mirofish',
+};
+
+function getToolMix(sources: AgentSource[]): Array<{ tool: AgentSource['tool']; count: number }> {
+  const counts = new Map<AgentSource['tool'], number>();
+  for (const source of sources) {
+    counts.set(source.tool, (counts.get(source.tool) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([tool, count]) => ({ tool, count }));
+}
+
+function formatMiniPreview(text: string, maxLength = 72): string {
+  const clean = text.replace(/\s+/g, ' ').trim();
+  return clean.length > maxLength ? `${clean.slice(0, maxLength - 1)}…` : clean;
+}
+
 // ── Record result mini-form ─────────────────────────────────────────────────
 // Lets the user paste actual campaign numbers for a variant. Stores them via
 // /api/feedback so the refiner can reason over them on the next refine.
@@ -90,6 +114,7 @@ function RecordResultForm({
   const [sentCount, setSentCount] = useState('');
   const [openRate, setOpenRate] = useState('');
   const [replyRate, setReplyRate] = useState('');
+  const [clickRate, setClickRate] = useState('');
   const [meetingsBooked, setMeetingsBooked] = useState('');
   const [hypothesisConfirmed, setHypothesisConfirmed] = useState<'yes' | 'no' | 'unclear' | ''>('');
   const [notes, setNotes] = useState('');
@@ -114,6 +139,7 @@ function RecordResultForm({
       sentCount: numOrUndef(sentCount),
       openRate: numOrUndef(openRate),
       replyRate: numOrUndef(replyRate),
+      clickRate: numOrUndef(clickRate),
       meetingsBooked: numOrUndef(meetingsBooked),
       hypothesisConfirmed: hypothesisConfirmed || undefined,
       notes: notes || undefined,
@@ -145,7 +171,11 @@ function RecordResultForm({
             <Field label="Sent" value={sentCount} onChange={setSentCount} placeholder="250" />
             <Field label="Open %" value={openRate} onChange={setOpenRate} placeholder="42" />
             <Field label="Reply %" value={replyRate} onChange={setReplyRate} placeholder="4.2" />
+            <Field label="Click %" value={clickRate} onChange={setClickRate} placeholder="2.1" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <Field label="Meetings" value={meetingsBooked} onChange={setMeetingsBooked} placeholder="3" />
+            <Field label="What resonated" value={notes} onChange={setNotes} placeholder="Proof point, pain, or CTA that got traction" />
           </div>
           <div>
             <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Hypothesis confirmed?</p>
@@ -170,17 +200,6 @@ function RecordResultForm({
               })}
             </div>
           </div>
-          <div>
-            <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Notes</p>
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={2}
-              placeholder="What worked / what didn't"
-              className="w-full text-[11px] rounded px-2 py-1.5 font-sans resize-none focus:outline-none"
-              style={{ background: 'transparent', border: `1px solid ${borderC}`, color: textMain }}
-            />
-          </div>
           <div className="flex items-center justify-between">
             <p className="text-[9px] font-mono" style={{ color: textSubtle }}>
               Feeds the refiner on your next <span style={{ color: accentColor }}>Refine with feedback</span> click.
@@ -195,6 +214,11 @@ function RecordResultForm({
               {saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save result'}
             </button>
           </div>
+          {saved && (
+            <p className="text-[10px] font-mono" style={{ color: accentColor }}>
+              Ingested open, reply, click, and resonated notes for this variant.
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -358,6 +382,168 @@ function VariantDetail({
   );
 }
 
+function SourceMixStrip({ sources, compact = false }: { sources: AgentSource[]; compact?: boolean }) {
+  const { border: borderC, surface2: cardBg2, textMuted, textSubtle } = useTheme();
+  if (!sources.length) return null;
+
+  const mix = getToolMix(sources);
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md p-3" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] font-mono font-semibold uppercase tracking-wider" style={{ color: textSubtle }}>Source mix</span>
+        {mix.map(({ tool, count }) => (
+          <span
+            key={tool}
+            className="text-[10px] font-mono px-2 py-0.5 rounded-full"
+            style={{
+              color: '#0070f3',
+              background: 'rgba(0,112,243,0.08)',
+              border: '1px solid rgba(0,112,243,0.2)',
+            }}
+          >
+            {SOURCE_TOOL_LABELS[tool]} × {count}
+          </span>
+        ))}
+      </div>
+      {!compact && (
+        <div className="flex flex-wrap gap-1.5">
+          {sources.slice(0, 6).map((source, index) => (
+            <a
+              key={`${source.url}-${index}`}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[10px] font-mono px-2 py-0.5 rounded-md transition-colors"
+              style={{ color: textMuted, background: 'transparent', border: `1px solid ${borderC}` }}
+              title={source.url}
+            >
+              {formatMiniPreview(source.title, 30)}
+            </a>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function VariantComparisonMatrix({
+  variants,
+  selectedChannel,
+  activeVariantIdx,
+  onSelectVariant,
+  onSelectChannel,
+}: {
+  variants: CampaignVariant[];
+  selectedChannel: 'all' | 'email' | 'linkedin' | 'ads';
+  activeVariantIdx: number;
+  onSelectVariant: (index: number) => void;
+  onSelectChannel: (channel: 'all' | 'email' | 'linkedin' | 'ads') => void;
+}) {
+  const { border: borderC, surface2: cardBg2, text: textMain, textMuted, textSubtle } = useTheme();
+  const channels: Array<'email' | 'linkedin' | 'ads'> = ['email', 'linkedin', 'ads'];
+
+  const channelPreview = (variant: CampaignVariant, channel: 'email' | 'linkedin' | 'ads') => {
+    if (channel === 'email') {
+      const subject = variant.channels.email?.subject ?? `${variant.angle} subject line`;
+      const body = variant.channels.email?.body ?? variant.hypothesis;
+      return { title: 'Outreach', body: `${subject} · ${formatMiniPreview(body, 84)}` };
+    }
+    if (channel === 'linkedin') {
+      const hook = variant.channels.linkedin?.hook ?? variant.angle;
+      const post = variant.channels.linkedin?.post ?? variant.hypothesis;
+      return { title: 'Post', body: `${hook} · ${formatMiniPreview(post, 84)}` };
+    }
+    return {
+      title: 'Ads',
+      body: `${variant.angle}: ${formatMiniPreview(variant.hypothesis, 62)} · CTA ${variant.successMetric}`,
+    };
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-1.5">
+        {(['all', 'email', 'linkedin', 'ads'] as const).map(channel => {
+          const active = selectedChannel === channel;
+          return (
+            <button
+              key={channel}
+              type="button"
+              onClick={() => onSelectChannel(channel)}
+              className="text-[10px] font-mono px-2.5 py-1 rounded-full transition-colors"
+              style={{
+                color: active ? '#0070f3' : textSubtle,
+                background: active ? 'rgba(0,112,243,0.08)' : 'transparent',
+                border: `1px solid ${active ? 'rgba(0,112,243,0.2)' : borderC}`,
+              }}
+            >
+              {channel === 'all' ? 'all channels' : channel}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="min-w-[760px] flex flex-col gap-2">
+          <div className="grid grid-cols-[160px_repeat(3,minmax(0,1fr))] gap-2 text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>
+            <div>Variant</div>
+            {channels.map(channel => <div key={channel}>{channel}</div>)}
+          </div>
+          {variants.map((variant, index) => {
+            const isActive = index === activeVariantIdx;
+            return (
+              <div
+                key={variant.id}
+                className="grid grid-cols-[160px_repeat(3,minmax(0,1fr))] gap-2"
+                style={{ opacity: selectedChannel !== 'all' && !variant.channels[selectedChannel as 'email' | 'linkedin'] ? 0.94 : 1 }}
+              >
+                <div
+                  className="rounded-md p-3 flex flex-col gap-2"
+                  style={{ background: isActive ? 'rgba(0,112,243,0.08)' : cardBg2, border: `1px solid ${isActive ? 'rgba(0,112,243,0.25)' : borderC}` }}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-mono font-semibold" style={{ color: isActive ? '#0070f3' : textMain }}>{variant.id}</span>
+                    <button
+                      type="button"
+                      onClick={() => onSelectVariant(index)}
+                      className="text-[10px] font-mono px-2 py-0.5 rounded-full"
+                      style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.2)' }}
+                    >
+                      select this angle
+                    </button>
+                  </div>
+                  <p className="text-[11px]" style={{ color: textMuted }}>{formatMiniPreview(variant.angle, 42)}</p>
+                </div>
+                {channels.map(channel => {
+                  const preview = channelPreview(variant, channel);
+                  const highlighted = selectedChannel === 'all' || selectedChannel === channel;
+                  return (
+                    <div
+                      key={`${variant.id}-${channel}`}
+                      className="rounded-md p-3 flex flex-col gap-1.5"
+                      style={{
+                        background: highlighted ? cardBg2 : 'transparent',
+                        border: `1px solid ${highlighted ? borderC : 'transparent'}`,
+                        opacity: selectedChannel === 'all' || selectedChannel === channel ? 1 : 0.55,
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>{preview.title}</span>
+                        {channel === 'email' ? <Mail size={11} style={{ color: '#3b82f6' }} /> : channel === 'linkedin' ? <Linkedin size={11} style={{ color: '#0077b5' }} /> : <Target size={11} style={{ color: '#f59e0b' }} />}
+                      </div>
+                      <p className="text-[11px] leading-relaxed" style={{ color: textMuted }}>{preview.body}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ExecutionPlan({ output, product, sessionId, messageId, onRefined }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('variants');
   const [activeVariantIdx, setActiveVariantIdx] = useState(0);
@@ -367,11 +553,30 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
   const [variantsWithResults, setVariantsWithResults] = useState<Set<string>>(new Set());
   // Track completed deployment steps (local toggle)
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
+  const [publishedSteps, setPublishedSteps] = useState<Set<number>>(new Set());
+  const [publishStatus, setPublishStatus] = useState<string | null>(null);
+  const [selectedChannel, setSelectedChannel] = useState<'all' | 'email' | 'linkedin' | 'ads'>('all');
+  const [selectedAudience, setSelectedAudience] = useState<string>(() => output.brief.targetAudience || '');
+  const [selectedObjective, setSelectedObjective] = useState<string>(() => output.brief.objective || '');
   const { border: borderC, surface: cardBg, surface2: cardBg2, text: textMain, textMuted, textSubtle } = useTheme();
 
   const variants = output.variants ?? [];
   const deployment = output.deployment ?? [];
   const brief = output.brief;
+  const sources = output.sources ?? [];
+  const sourceMix = getToolMix(sources);
+  const audienceChoices = Array.from(new Set([
+    brief.targetAudience,
+    'VP Sales',
+    'Head of Growth',
+    'Founder / CEO',
+  ].filter(Boolean)));
+  const objectiveChoices = Array.from(new Set([
+    brief.objective,
+    ...(brief.successMetrics ?? []).slice(0, 2),
+    'Book meetings',
+    'Validate message fit',
+  ].filter(Boolean)));
 
   // Clamp the active variant index in case the variant list shrinks (e.g.
   // a re-render with sparser data) so we never index out of bounds.
@@ -393,6 +598,35 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
       return next;
     });
   }, []);
+
+  const handlePublishStep = useCallback((stepIdx: number) => {
+    setPublishedSteps(prev => {
+      const next = new Set(prev);
+      next.add(stepIdx);
+      return next;
+    });
+    setCompletedSteps(prev => {
+      const next = new Set(prev);
+      next.add(stepIdx);
+      return next;
+    });
+    setPublishStatus(`Simulated publish queued for step ${stepIdx + 1}`);
+    setTimeout(() => setPublishStatus(null), 3500);
+  }, []);
+
+  const handlePublishAll = useCallback(() => {
+    const stepIndexes = [...deployment]
+      .sort((a, b) => a.day - b.day)
+      .map((step, idx) => ({ step, idx }))
+      .filter(({ step }) => selectedChannel === 'all' || step.channel === selectedChannel)
+      .map(({ idx }) => idx);
+    setPublishedSteps(prev => new Set([...prev, ...stepIndexes]));
+    setCompletedSteps(prev => new Set([...prev, ...stepIndexes]));
+    setPublishStatus(stepIndexes.length > 0
+      ? `Simulated publish queued for ${stepIndexes.length} step${stepIndexes.length === 1 ? '' : 's'}`
+      : 'No steps available for this channel');
+    setTimeout(() => setPublishStatus(null), 3500);
+  }, [deployment, selectedChannel]);
 
   const handleRefine = async () => {
     if (!sessionId || !messageId || isRefining) return;
@@ -520,6 +754,142 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
                     </span>
                   </div>
                 )}
+
+                <div className="flex flex-col gap-3 rounded-md p-3" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-mono font-semibold uppercase tracking-widest" style={{ color: textSubtle }}>Scope narrowing</p>
+                      <p className="text-[11px] mt-1" style={{ color: textMuted }}>Pick the channel, audience, objective, and angle you want to push into the next run.</p>
+                    </div>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.2)' }}>
+                      {sourceMix.length} source types
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                    <div className="rounded-md p-3" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
+                      <p className="text-[10px] font-mono uppercase tracking-wider mb-2" style={{ color: textSubtle }}>Channel choice</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(['all', 'email', 'linkedin', 'ads'] as const).map(channel => {
+                          const active = selectedChannel === channel;
+                          return (
+                            <button
+                              key={channel}
+                              type="button"
+                              onClick={() => setSelectedChannel(channel)}
+                              className="text-[10px] font-mono px-2.5 py-1 rounded-full transition-colors"
+                              style={{
+                                color: active ? '#0070f3' : textSubtle,
+                                background: active ? 'rgba(0,112,243,0.08)' : 'transparent',
+                                border: `1px solid ${active ? 'rgba(0,112,243,0.2)' : borderC}`,
+                              }}
+                            >
+                              {channel === 'all' ? 'all' : channel}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="rounded-md p-3" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
+                      <p className="text-[10px] font-mono uppercase tracking-wider mb-2" style={{ color: textSubtle }}>Audience choice</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {audienceChoices.map(choice => {
+                          const active = selectedAudience === choice;
+                          return (
+                            <button
+                              key={choice}
+                              type="button"
+                              onClick={() => setSelectedAudience(choice)}
+                              className="text-[10px] font-mono px-2.5 py-1 rounded-full transition-colors"
+                              style={{
+                                color: active ? '#0070f3' : textSubtle,
+                                background: active ? 'rgba(0,112,243,0.08)' : 'transparent',
+                                border: `1px solid ${active ? 'rgba(0,112,243,0.2)' : borderC}`,
+                              }}
+                            >
+                              {choice}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="rounded-md p-3" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
+                      <p className="text-[10px] font-mono uppercase tracking-wider mb-2" style={{ color: textSubtle }}>Objective choice</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {objectiveChoices.map(choice => {
+                          const active = selectedObjective === choice;
+                          return (
+                            <button
+                              key={choice}
+                              type="button"
+                              onClick={() => setSelectedObjective(choice)}
+                              className="text-[10px] font-mono px-2.5 py-1 rounded-full transition-colors"
+                              style={{
+                                color: active ? '#0070f3' : textSubtle,
+                                background: active ? 'rgba(0,112,243,0.08)' : 'transparent',
+                                border: `1px solid ${active ? 'rgba(0,112,243,0.2)' : borderC}`,
+                              }}
+                            >
+                              {choice}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="rounded-md p-3" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
+                      <p className="text-[10px] font-mono uppercase tracking-wider mb-2" style={{ color: textSubtle }}>Angle choice</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {variants.map((variant, index) => {
+                          const active = index === safeVariantIdx;
+                          return (
+                            <button
+                              key={`scope-angle-${variant.id}`}
+                              type="button"
+                              onClick={() => setActiveVariantIdx(index)}
+                              className="text-[10px] font-mono px-2.5 py-1 rounded-full transition-colors"
+                              style={{
+                                color: active ? '#0070f3' : textSubtle,
+                                background: active ? 'rgba(0,112,243,0.08)' : 'transparent',
+                                border: `1px solid ${active ? 'rgba(0,112,243,0.2)' : borderC}`,
+                              }}
+                            >
+                              {variant.angle}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <SourceMixStrip sources={sources} compact />
+                </div>
+
+                <div className="rounded-md p-3" style={{ background: `${activeVariantColor}08`, border: `1px solid ${activeVariantColor}22` }}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-mono uppercase tracking-wider" style={{ color: activeVariantColor }}>Selected angle</p>
+                      <p className="text-[13px] font-semibold mt-1" style={{ color: textMain }}>{activeVariant?.angle ?? 'No angle selected'}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 text-[10px] font-mono" style={{ color: textSubtle }}>
+                      <span>{selectedChannel === 'all' ? 'all channels' : selectedChannel}</span>
+                      <span style={{ opacity: 0.4 }}>|</span>
+                      <span>{selectedAudience || 'audience'}</span>
+                      <span style={{ opacity: 0.4 }}>|</span>
+                      <span>{selectedObjective || 'objective'}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <VariantComparisonMatrix
+                  variants={variants}
+                  selectedChannel={selectedChannel}
+                  activeVariantIdx={safeVariantIdx}
+                  onSelectVariant={setActiveVariantIdx}
+                  onSelectChannel={setSelectedChannel}
+                />
 
                 {/* Variant tab strip — one button per variant */}
                 <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Variants">
@@ -662,32 +1032,83 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
           <div className="flex flex-col gap-3">
             {deployment.length > 0 ? (
               <>
-                {/* Progress summary */}
-                <div className="flex items-center justify-between">
-                  <p className="text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>
-                    Sequenced rollout — {deployment.length} {deployment.length === 1 ? 'step' : 'steps'}
-                  </p>
-                  {completedSteps.size > 0 && (
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{
-                      color: completedSteps.size === deployment.length ? '#10b981' : '#0070f3',
-                      background: completedSteps.size === deployment.length ? 'rgba(16,185,129,0.1)' : 'rgba(0,112,243,0.08)',
-                      border: `1px solid ${completedSteps.size === deployment.length ? 'rgba(16,185,129,0.25)' : 'rgba(0,112,243,0.2)'}`,
-                    }}>
-                      {completedSteps.size}/{deployment.length} completed
-                    </span>
+                <div className="flex flex-col gap-3 rounded-md p-3" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>
+                        Deployment stage — {deployment.length} {deployment.length === 1 ? 'step' : 'steps'}
+                      </p>
+                      <p className="text-[11px] mt-1" style={{ color: textMuted }}>Choose the channel, review the send-ready copy, then simulate publish so the loop feels closed.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.2)' }}>
+                        {publishedSteps.size}/{deployment.length} published
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handlePublishAll}
+                        className="text-[10px] font-mono px-2.5 py-1 rounded-full transition-colors"
+                        style={{ color: '#fff', background: '#0070f3', border: '1px solid #0070f3' }}
+                      >
+                        Simulate publish
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {(['all', 'email', 'linkedin', 'ads'] as const).map(channel => {
+                      const active = selectedChannel === channel;
+                      return (
+                        <button
+                          key={`deploy-filter-${channel}`}
+                          type="button"
+                          onClick={() => setSelectedChannel(channel)}
+                          className="text-[10px] font-mono px-2.5 py-1 rounded-full transition-colors"
+                          style={{
+                            color: active ? '#0070f3' : textSubtle,
+                            background: active ? 'rgba(0,112,243,0.08)' : 'transparent',
+                            border: `1px solid ${active ? 'rgba(0,112,243,0.2)' : borderC}`,
+                          }}
+                        >
+                          {channel === 'all' ? 'all channels' : channel}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-[11px]" style={{ color: textMuted }}>
+                    <div className="rounded-md p-3" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
+                      <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Audience</p>
+                      <p>{selectedAudience || brief.targetAudience}</p>
+                    </div>
+                    <div className="rounded-md p-3" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
+                      <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Objective</p>
+                      <p>{selectedObjective || brief.objective}</p>
+                    </div>
+                    <div className="rounded-md p-3" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
+                      <p className="text-[9px] font-mono uppercase tracking-wider mb-1" style={{ color: textSubtle }}>Channel</p>
+                      <p>{selectedChannel === 'all' ? 'all channels' : selectedChannel}</p>
+                    </div>
+                  </div>
+
+                  {publishStatus && (
+                    <div className="text-[10px] font-mono px-2.5 py-1 rounded-md" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.06)', border: '1px solid rgba(0,112,243,0.15)' }}>
+                      {publishStatus}
+                    </div>
                   )}
                 </div>
 
-                {/* Sort by day so the timeline always reads top-to-bottom in chronological order */}
                 {[...deployment].sort((a, b) => a.day - b.day).map((step, i) => {
                   const isDone = completedSteps.has(i);
+                  const isPublished = publishedSteps.has(i);
+                  const stepVisible = selectedChannel === 'all' || step.channel === selectedChannel;
                   return (
                     <div key={`deploy-${i}-${step.day}-${step.channel}`}
                       className="flex items-start gap-3 rounded-md px-3 py-2.5 transition-opacity"
                       style={{
                         background: isDone ? `${cardBg2}` : cardBg2,
                         border: `1px solid ${isDone ? 'rgba(16,185,129,0.3)' : borderC}`,
-                        opacity: isDone ? 0.65 : 1,
+                        opacity: stepVisible ? (isDone ? 0.72 : 1) : 0.55,
                       }}>
                       {/* Completion toggle */}
                       <button
@@ -719,11 +1140,34 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
                             }}>
                             {CHANNEL_ICONS[step.channel]} {step.channel}
                           </span>
+                          {isPublished && (
+                            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ color: '#10b981', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
+                              published
+                            </span>
+                          )}
                         </div>
                         <p className="text-[12px] font-medium" style={{ color: textMain, textDecoration: isDone ? 'line-through' : 'none' }}>{step.action}</p>
                         <p className="text-[11px] mt-0.5" style={{ color: textSubtle }}>
                           <span className="opacity-70">Audience: </span>{step.audience}
                         </p>
+                        <div className="flex items-center gap-2 mt-2">
+                          <button
+                            type="button"
+                            onClick={() => handlePublishStep(i)}
+                            className="text-[10px] font-mono px-2 py-0.5 rounded-full transition-colors"
+                            style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.2)' }}
+                          >
+                            simulate publish
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleStepComplete(i)}
+                            className="text-[10px] font-mono px-2 py-0.5 rounded-full transition-colors"
+                            style={{ color: textSubtle, background: 'transparent', border: `1px solid ${borderC}` }}
+                          >
+                            {isDone ? 'mark pending' : 'mark complete'}
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );

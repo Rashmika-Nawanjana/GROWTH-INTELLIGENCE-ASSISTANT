@@ -188,6 +188,18 @@ function ConfidenceBadge({ level }: { level?: string }) {
   );
 }
 
+function buildSourceMix(outputs: AgentOutput[] = []) {
+  const counts = new Map<string, number>();
+  for (const output of outputs) {
+    for (const source of output.sources ?? []) {
+      counts.set(source.tool, (counts.get(source.tool) ?? 0) + 1);
+    }
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([tool, count]) => ({ tool, count }));
+}
+
 /* ─── Sidebar agent row ──────────────────────────────────── */
 function SidebarAgentRow({
   domain,
@@ -1167,6 +1179,20 @@ export default function VeracityDashboard() {
                     </button>
                   ))}
                 </div>
+                <div className="flex flex-col gap-2 w-full max-w-lg pt-2">
+                  <p className="text-[10px] font-mono uppercase tracking-widest" style={{ color: textSubtle }}>Run another product</p>
+                  <button
+                    onClick={() => handleSend('What should Clay build or reposition over the next six months to capture emerging demand?')}
+                    className="flex items-center gap-3 px-4 py-3.5 rounded-lg text-[13px] text-left transition-all"
+                    style={{ background: cardBg2, border: `1px solid ${borderC}`, color: textMuted }}
+                    onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.borderColor = isDark ? '#404040' : '#aaa'; b.style.color = textMain; }}
+                    onMouseLeave={e => { const b = e.currentTarget as HTMLButtonElement; b.style.borderColor = borderC; b.style.color = textMuted; }}
+                  >
+                    <Layers size={13} style={{ color: textSubtle, flexShrink: 0 }} />
+                    <span className="flex-1 demo-query-text">What should Clay build or reposition over the next six months to capture emerging demand?</span>
+                    <ChevronRight size={12} style={{ color: textSubtle, flexShrink: 0 }} />
+                  </button>
+                </div>
               </div>
             )}
 
@@ -1372,6 +1398,67 @@ export default function VeracityDashboard() {
                 <div className="p-6 lg:p-8 flex flex-col gap-8">
                   <p className="prose-answer">{currentResult.content}</p>
 
+                  {(() => {
+                    const refinement = currentResult.orchestratorOutput?.refinement;
+                    const sourceMix = buildSourceMix(currentResult.orchestratorOutput?.outputs ?? []);
+                    const researchRuns = (currentResult.agentRuns ?? []).filter(r => ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent'].includes(r.agentId));
+                    const executionRun = (currentResult.agentRuns ?? []).find(r => r.agentId === 'execution-engine');
+                    const researchDone = researchRuns.filter(r => r.status === 'completed').length;
+                    const researchFailed = researchRuns.filter(r => r.status === 'failed').length;
+                    return (
+                      <div className="flex flex-col gap-3 rounded-lg p-4" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+                        <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono uppercase tracking-wider" style={{ color: textSubtle }}>
+                          <span>Phases</span>
+                          <span className="px-2 py-0.5 rounded-full" style={{ color: researchDone + researchFailed >= 6 ? '#10b981' : '#0070f3', background: researchDone + researchFailed >= 6 ? 'rgba(16,185,129,0.08)' : 'rgba(0,112,243,0.08)', border: `1px solid ${researchDone + researchFailed >= 6 ? 'rgba(16,185,129,0.2)' : 'rgba(0,112,243,0.2)'}` }}>
+                            research {researchDone}/{Math.max(researchRuns.length, 6)}{researchFailed > 0 ? ` · ${researchFailed} failed` : ''}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full" style={{ color: executionRun?.status === 'completed' ? '#10b981' : executionRun?.status === 'running' ? '#0070f3' : textSubtle, background: executionRun?.status === 'completed' ? 'rgba(16,185,129,0.08)' : executionRun?.status === 'running' ? 'rgba(0,112,243,0.08)' : 'transparent', border: `1px solid ${executionRun?.status === 'completed' ? 'rgba(16,185,129,0.2)' : executionRun?.status === 'running' ? 'rgba(0,112,243,0.2)' : borderC}` }}>
+                            execution {executionRun?.status ?? 'idle'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full" style={{ color: refinement ? '#10b981' : textSubtle, background: refinement ? 'rgba(16,185,129,0.08)' : 'transparent', border: `1px solid ${refinement ? 'rgba(16,185,129,0.2)' : borderC}` }}>
+                            refinement {refinement ? 'applied' : 'idle'}
+                          </span>
+                        </div>
+
+                        {sourceMix.length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-mono" style={{ color: textSubtle }}>
+                            <span className="uppercase tracking-wider">Source mix</span>
+                            {sourceMix.map(({ tool, count }) => (
+                              <span key={tool} className="px-2 py-0.5 rounded-full" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.2)' }}>
+                                {tool} × {count}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+
+                        {refinement && refinement.deltas.length > 0 && (
+                          <div className="rounded-md p-3" style={{ background: cardBg, border: `1px solid ${borderC}` }}>
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                              <div>
+                                <p className="text-[10px] font-mono uppercase tracking-widest" style={{ color: textSubtle }}>Before / after refinement</p>
+                                <p className="text-[11px] mt-1" style={{ color: textMuted }}>{refinement.feedbackApplied.variantResults} variant results, {refinement.feedbackApplied.recommendationFeedback} ratings, {refinement.feedbackApplied.recommendationActions} actions</p>
+                              </div>
+                              {refinement.focus && <span className="text-[10px] font-mono px-2 py-0.5 rounded-full" style={{ color: '#0070f3', background: 'rgba(0,112,243,0.08)', border: '1px solid rgba(0,112,243,0.2)' }}>{refinement.focus}</span>}
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              {refinement.deltas.slice(0, 3).map(delta => (
+                                <div key={`${delta.domain}-${delta.summary}`} className="rounded-md p-2.5" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="text-[10px] font-mono uppercase tracking-wider" style={{ color: '#0070f3' }}>{delta.domain}</span>
+                                    {delta.beforeConfidence && <ConfidenceBadge level={delta.beforeConfidence} />}
+                                    <ArrowUpRight size={10} style={{ color: textSubtle, transform: 'rotate(45deg)' }} />
+                                    {delta.afterConfidence && <ConfidenceBadge level={delta.afterConfidence} />}
+                                  </div>
+                                  <p className="text-[11px] mt-1" style={{ color: textMuted }}>{delta.summary}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {currentResult.orchestratorOutput?.outputs?.length ? (
                     <div>
                       <p className="text-[10px] font-mono font-semibold uppercase tracking-widest mb-3" style={{ color: textSubtle }}>
@@ -1392,6 +1479,17 @@ export default function VeracityDashboard() {
                               <p className="text-[13px] leading-relaxed" style={{ color: textMuted }}>
                                 {o.interpretation?.[0] || o.facts?.[0] || 'No highlight available.'}
                               </p>
+                              {o.sources?.length ? (
+                                <div className="flex flex-wrap gap-1.5 mt-3 pt-2" style={{ borderTop: `1px solid ${borderC}` }}>
+                                  {o.sources.slice(0, 2).map(source => (
+                                    <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer"
+                                      className="text-[10px] font-mono px-2 py-0.5 rounded-md transition-colors"
+                                      style={{ color: textMuted, background: cardBg, border: `1px solid ${borderC}` }}>
+                                      {source.title} <ArrowUpRight size={8} />
+                                    </a>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                           ))}
                       </div>
