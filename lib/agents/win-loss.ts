@@ -38,12 +38,14 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     redditCompetitorResult,
     hnResult,
     g2ScrapeResult,
+    socialReviewResult,
   ] = await Promise.allSettled([
     searchWeb(`${competitorName} vs ${product} review pros cons 2025`),
     searchProductReviews(product),
     searchProductReviews(competitorName),
     searchHN(`${competitorName} ${product} review comparison`),
     scrapePage(reviewUrls[0]),
+    searchWeb(`${competitorName} vs ${product} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com review comparison buyer feedback`),
   ]);
 
   // Also search for deal loss reasons in sales-adjacent communities
@@ -83,6 +85,12 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     const page = g2ScrapeResult.value.data;
     sources.push({ url: page.url, title: `${competitorName} G2 Reviews`, timestamp: g2ScrapeResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[G2 REVIEWS] ${page.excerpt}`);
+  }
+  if (socialReviewResult.status === 'fulfilled') {
+    socialReviewResult.value.data.slice(0, 3).forEach(r => {
+      sources.push({ url: r.url, title: r.title, timestamp: socialReviewResult.value.timestamp, tool: 'serpapi' });
+      rawContent.push(`[SOCIAL REVIEW] ${r.title}: ${r.snippet}`);
+    });
   }
   if (salesRedditResult.status === 'fulfilled') {
     salesRedditResult.value.data.slice(0, 3).forEach(p => {
@@ -144,8 +152,8 @@ Produce JSON:
   }
 
   const rawScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
-  const toolResults = extractToolResults([webResult, redditProductResult, redditCompetitorResult, hnResult, g2ScrapeResult, salesRedditResult]);
-  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 6)).toFixed(2));
+  const toolResults = extractToolResults([webResult, redditProductResult, redditCompetitorResult, hnResult, g2ScrapeResult, socialReviewResult, salesRedditResult]);
+  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 7)).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
   const output: WinLossOutput = {

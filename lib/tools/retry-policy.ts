@@ -28,6 +28,13 @@ const DOMAIN_POLICIES: Record<string, RetryPolicy> = {
     description: 'Twitter — limited scrape access; prefer search snippets',
   },
 
+  'x.com': {
+    maxAttempts: 2,
+    delayMs: 1000,
+    useSearchSnippets: true,
+    description: 'X — limited scrape access; prefer search snippets',
+  },
+
   'facebook.com': {
     maxAttempts: 2,
     delayMs: 1000,

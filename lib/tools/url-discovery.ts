@@ -99,8 +99,6 @@ export function deduplicateUrls(urls: RankedUrl[]): RankedUrl[] {
  */
 function isContentDomain(url: string): boolean {
   const excluded = [
-    'twitter.com',
-    'instagram.com',
     'youtube.com',
     'facebook.com',
     'tiktok.com',

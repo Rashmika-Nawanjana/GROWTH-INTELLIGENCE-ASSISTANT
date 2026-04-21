@@ -46,9 +46,9 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
     const category = normalizeCategory(ctx);
     return {
     broad: `${ctx.product} market trends ${year} ${nextYear} growth industry`,
-    targeted: `site:reddit.com OR site:indiehackers.com "${ctx.product}" "${category}" trending growth`,
+    targeted: `site:reddit.com OR site:indiehackers.com OR site:x.com OR site:twitter.com OR site:linkedin.com OR site:instagram.com "${ctx.product}" "${category}" trending growth`,
     hypothesis: `"${ctx.product}" OR "${category}" (accelerating OR consolidating OR emerging) adoption`,
-    keywords: ['growth', 'trends', 'adoption', 'market', 'category', 'revenue'],
+    keywords: ['growth', 'trends', 'adoption', 'market', 'category', 'revenue', 'x.com', 'linkedin', 'instagram'],
   };
   },
 
@@ -57,9 +57,9 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
     const competitor = normalizeCompetitor(ctx);
     return {
     broad: `${competitor} ${ctx.product} features pricing positioning`,
-    targeted: `site:linkedin.com "${competitor}" ("new feature" OR "just launched" OR positioning) ${year} ${nextYear}`,
+    targeted: `site:linkedin.com OR site:x.com OR site:twitter.com OR site:instagram.com "${competitor}" ("new feature" OR "just launched" OR positioning) ${year} ${nextYear}`,
     hypothesis: `${competitor} vs ${ctx.product} differentiation competitive advantage`,
-    keywords: ['feature', 'competitor', 'pricing', 'positioning', 'launch', 'announcement'],
+    keywords: ['feature', 'competitor', 'pricing', 'positioning', 'launch', 'announcement', 'linkedin', 'x.com', 'instagram'],
   };
   },
 
@@ -78,9 +78,9 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
     const category = normalizeCategory(ctx);
     return {
     broad: `${ctx.product} pricing cost per seat willingness to pay ${competitor}`,
-    targeted: `site:reddit.com "${ctx.product}" pricing (expensive OR cheap OR worth)`,
+    targeted: `site:reddit.com OR site:x.com OR site:linkedin.com OR site:instagram.com "${ctx.product}" pricing (expensive OR cheap OR worth)`,
     hypothesis: `pricing model SaaS ${category} (ROI OR cost savings OR CAC)`,
-    keywords: ['pricing', 'cost', 'willingness', 'CAC', 'ROI', 'per-seat'],
+    keywords: ['pricing', 'cost', 'willingness', 'CAC', 'ROI', 'per-seat', 'x.com', 'linkedin', 'instagram'],
   };
   },
 
@@ -88,9 +88,9 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
     const competitor = normalizeCompetitor(ctx);
     return {
     broad: `${ctx.product} messaging positioning brand USP vs ${competitor}`,
-    targeted: `site:linkedin.com "${ctx.product}" brand message positioning ("think like" OR "move like")`,
+    targeted: `site:linkedin.com OR site:x.com OR site:twitter.com OR site:instagram.com "${ctx.product}" brand message positioning ("think like" OR "move like")`,
     hypothesis: `positioning gap ${ctx.product} market opportunity messaging`,
-    keywords: ['positioning', 'messaging', 'USP', 'brand', 'audience', 'claim'],
+    keywords: ['positioning', 'messaging', 'USP', 'brand', 'audience', 'claim', 'x.com', 'linkedin', 'instagram'],
   };
   },
 
@@ -109,9 +109,9 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
     const category = normalizeCategory(ctx);
     return {
     broad: `${ctx.product} outreach email templates campaign copy examples`,
-    targeted: `site:linkedin.com "${ctx.product}" campaign message copy best practices`,
+    targeted: `site:linkedin.com OR site:x.com OR site:instagram.com "${ctx.product}" campaign message copy best practices`,
     hypothesis: `high-performing ${category} outreach email hooks ROI angle`,
-    keywords: ['outreach', 'copy', 'email', 'campaign', 'hook', 'variant'],
+    keywords: ['outreach', 'copy', 'email', 'campaign', 'hook', 'variant', 'linkedin', 'x.com', 'instagram'],
   };
   },
 
@@ -146,7 +146,7 @@ export function planQueries(ctx: QueryPlanContext): QueryBundle {
     // Fallback for unknown domains
     return {
       broad: normalizedCtx.query,
-      targeted: `${normalizedCtx.query} site:reddit.com OR site:linkedin.com`,
+      targeted: `${normalizedCtx.query} site:reddit.com OR site:linkedin.com OR site:x.com OR site:twitter.com OR site:instagram.com`,
       hypothesis: `${normalizedCtx.query} (ROI OR impact OR competitive)`,
       keywords: normalizedCtx.query.split(/\s+/).slice(0, 5),
     };

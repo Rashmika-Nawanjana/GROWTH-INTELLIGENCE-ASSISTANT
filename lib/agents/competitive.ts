@@ -23,12 +23,13 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     `https://${competitorName.toLowerCase().replace(/\s+/g, '')}.com`;
 
   // ── Parallel data fetch ────────────────────────────────────────────────────
-  const [webResult, newsResult, hnResult, scrapeResult, pricingResult] = await Promise.allSettled([
+  const [webResult, newsResult, hnResult, scrapeResult, pricingResult, socialSignalsResult] = await Promise.allSettled([
     searchWeb(`${competitorName} features product update 2025 2026`),
     searchNews(`${competitorName} funding launch product announcement 2025`),
     searchHN(`${competitorName} ${product}`),
     scrapePage(compUrl),
     scrapeCompetitorPricing(compUrl),
+    searchWeb(`${competitorName} ${product} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com launch feature feedback`),
   ]);
 
   // Hiring signals
@@ -67,6 +68,12 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     const page = pricingResult.value.data;
     sources.push({ url: page.url, title: `${competitorName} Pricing`, timestamp: pricingResult.value.timestamp, tool: 'firecrawl' });
     rawContent.push(`[COMPETITOR PRICING] ${page.excerpt}`);
+  }
+  if (socialSignalsResult.status === 'fulfilled') {
+    socialSignalsResult.value.data.slice(0, 3).forEach(r => {
+      sources.push({ url: r.url, title: r.title, timestamp: socialSignalsResult.value.timestamp, tool: 'serpapi' });
+      rawContent.push(`[SOCIAL SIGNAL] ${r.title}: ${r.snippet}`);
+    });
   }
   if (hiringResult[0].status === 'fulfilled') {
     hiringResult[0].value.data.slice(0, 3).forEach(r => {
@@ -126,8 +133,8 @@ For the matrix, infer the most relevant feature dimensions from the signals abov
   }
 
   const rawScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
-  const toolResults = extractToolResults([webResult, newsResult, hnResult, scrapeResult, pricingResult, hiringResult[0]]);
-  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 6)).toFixed(2));
+  const toolResults = extractToolResults([webResult, newsResult, hnResult, scrapeResult, pricingResult, socialSignalsResult, hiringResult[0]]);
+  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 7)).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
   const output: CompetitiveOutput = {

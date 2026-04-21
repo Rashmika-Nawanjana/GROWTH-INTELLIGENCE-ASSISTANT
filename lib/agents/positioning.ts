@@ -31,6 +31,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     prodAdsResult,
     messagingSearchResult,
     redditPerceptionResult,
+    socialVoiceResult,
   ] = await Promise.allSettled([
     scrapePage(compUrl),
     scrapePage(prodUrl),
@@ -38,6 +39,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     searchAdsTransparency(product),
     searchWeb(`${competitorName} vs ${product} messaging positioning marketing`),
     searchReddit(`how does ${competitorName} market itself brand positioning`),
+    searchWeb(`${competitorName} OR ${product} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com positioning messaging`),
   ]);
 
   // Scrape about/story pages for deeper positioning signals
@@ -88,6 +90,12 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     redditPerceptionResult.value.data.slice(0, 3).forEach(p => {
       sources.push({ url: p.url, title: p.title, timestamp: p.created, tool: 'reddit' });
       rawContent.push(`[REDDIT PERCEPTION] ${p.title}: ${p.snippet}`);
+    });
+  }
+  if (socialVoiceResult.status === 'fulfilled') {
+    socialVoiceResult.value.data.slice(0, 3).forEach(r => {
+      sources.push({ url: r.url, title: r.title, timestamp: socialVoiceResult.value.timestamp, tool: 'serpapi' });
+      rawContent.push(`[SOCIAL VOICE] ${r.title}: ${r.snippet}`);
     });
   }
 
@@ -152,8 +160,8 @@ Dimensions to analyse: Value Framing, Audience Language, Category Claim, Emotion
   }
 
   const rawScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
-  const toolResults = extractToolResults([compHomeResult, prodHomeResult, compAdsResult, prodAdsResult, messagingSearchResult, redditPerceptionResult, compAboutResult, prodAboutResult]);
-  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 8)).toFixed(2));
+  const toolResults = extractToolResults([compHomeResult, prodHomeResult, compAdsResult, prodAdsResult, messagingSearchResult, redditPerceptionResult, socialVoiceResult, compAboutResult, prodAboutResult]);
+  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 9)).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
   const output: PositioningOutput = {

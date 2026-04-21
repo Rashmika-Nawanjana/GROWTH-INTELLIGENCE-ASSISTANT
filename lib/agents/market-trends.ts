@@ -35,7 +35,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   const trendKeywords = [product, competitor].filter(Boolean) as string[];
 
   // Use query bundle: broad + targeted + hypothesis queries in parallel
-  const [webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult] = await Promise.allSettled([
+  const [webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult, socialPulseResult] = await Promise.allSettled([
     searchWeb(queryBundle.broad),
     searchNews(`${product}${competitor ? ` ${competitor}` : ''} market growth revenue funding`),
     searchTrends(trendKeywords),
@@ -43,6 +43,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     searchReddit(queryBundle.hypothesis),
     searchWeb(queryBundle.targeted),
     searchWeb(queryBundle.hypothesis),
+    searchWeb(`${product}${competitor ? ` ${competitor}` : ''} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com trend launch feedback`),
   ]);
 
   // ── Collect sources ────────────────────────────────────────────────────────
@@ -65,6 +66,12 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     webHypothesisResult.value.data.slice(0, 2).forEach(r => {
       sources.push({ url: r.url, title: r.title, timestamp: webHypothesisResult.value.timestamp, tool: 'serpapi' });
       rawContent.push(`[WEB HYPOTHESIS] ${r.title}: ${r.snippet}`);
+    });
+  }
+  if (socialPulseResult.status === 'fulfilled') {
+    socialPulseResult.value.data.slice(0, 3).forEach(r => {
+      sources.push({ url: r.url, title: r.title, timestamp: socialPulseResult.value.timestamp, tool: 'serpapi' });
+      rawContent.push(`[SOCIAL PULSE] ${r.title}: ${r.snippet}`);
     });
   }
   if (newsResult.status === 'fulfilled') {
@@ -153,8 +160,8 @@ Produce a JSON object with this exact shape:
   // Penalise the Gemini-reported score by the aggregate signal quality of the
   // tool calls that fed it — a synthesis with 3 failed tools shouldn't get the
   // same confidence as one with all tools succeeding.
-  const toolResults = extractToolResults([webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult]);
-  const signalPenalty = computeSignalQualityPenalty(toolResults, 7);
+  const toolResults = extractToolResults([webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult, socialPulseResult]);
+  const signalPenalty = computeSignalQualityPenalty(toolResults, 8);
   const confScore = Number.parseFloat((rawScore * signalPenalty).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
