@@ -20,8 +20,30 @@ export async function searchHN(query: string, type: 'story' | 'comment' = 'story
   const since = Math.floor(Date.now() / 1000) - 365 * 24 * 60 * 60;
   url.searchParams.set('numericFilters', `created_at_i>${since}`);
 
-  const res = await fetch(url.toString());
-  if (!res.ok) {
+  let posts: HNPost[] = [];
+  try {
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      return buildToolResult<HNPost[]>({
+        data: [],
+        status: 'failed',
+        source: 'Hacker News (failed)',
+        sourceUrl: url.toString(),
+      });
+    }
+
+    const raw = await res.json() as any;
+    posts = (raw.hits ?? [])
+      .slice(0, 10)
+      .map((h: any) => ({
+        title: h.title ?? h.story_title ?? h.comment_text?.slice(0, 100) ?? '',
+        url: h.url ?? `https://news.ycombinator.com/item?id=${h.objectID}`,
+        score: h.points ?? 0,
+        author: h.author ?? 'unknown',
+        created: h.created_at,
+        commentCount: h.num_comments ?? 0,
+      }));
+  } catch {
     return buildToolResult<HNPost[]>({
       data: [],
       status: 'failed',
@@ -29,18 +51,6 @@ export async function searchHN(query: string, type: 'story' | 'comment' = 'story
       sourceUrl: url.toString(),
     });
   }
-
-  const raw = await res.json() as any;
-  const posts: HNPost[] = (raw.hits ?? [])
-    .slice(0, 10)
-    .map((h: any) => ({
-      title: h.title ?? h.story_title ?? h.comment_text?.slice(0, 100) ?? '',
-      url: h.url ?? `https://news.ycombinator.com/item?id=${h.objectID}`,
-      score: h.points ?? 0,
-      author: h.author ?? 'unknown',
-      created: h.created_at,
-      commentCount: h.num_comments ?? 0,
-    }));
 
   const result = buildToolResult<HNPost[]>({
     data: posts,

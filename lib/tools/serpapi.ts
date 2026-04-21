@@ -3,20 +3,23 @@ import type { ToolResult, SearchResult, TrendPoint } from './types';
 import { buildToolResult } from './fallback';
 
 const BASE_URL = 'https://serpapi.com/search';
-const API_KEY = process.env.SERPAPI_KEY;
 
 class SerpError extends Error {
   constructor(message: string) { super(message); this.name = 'SerpError'; }
 }
 
 async function serpFetch(params: Record<string, string>): Promise<unknown> {
-  if (!API_KEY) throw new SerpError('SERPAPI_KEY not set');
+  const apiKey = process.env.SERPAPI_KEY;
+  if (!apiKey) throw new SerpError('SERPAPI_KEY not set');
   const url = new URL(BASE_URL);
-  url.searchParams.set('api_key', API_KEY);
+  url.searchParams.set('api_key', apiKey);
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);
   }
-  const res = await fetch(url.toString(), { next: { revalidate: 0 } });
+  const res = await fetch(url.toString(), {
+    next: { revalidate: 0 },
+    signal: AbortSignal.timeout(15000),
+  });
   if (!res.ok) throw new SerpError(`SerpAPI ${res.status}: ${await res.text()}`);
   return res.json();
 }

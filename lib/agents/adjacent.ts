@@ -136,7 +136,7 @@ Produce JSON:
   }
 
   const rawScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
-  const toolResults = extractToolResults([platformThreatResult, aiFundingResult, disruptorResult, fundingResult, redditAdjacentResult, patentResult]);
+  const toolResults = extractToolResults([platformThreatResult, aiFundingResult, disruptorResult, fundingResult, hnAdjacentResult, redditAdjacentResult, patentResult]);
   const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 7)).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 

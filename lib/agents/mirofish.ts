@@ -218,6 +218,7 @@ Reply with ONLY a JSON object with a "responses" field containing an array of ${
 async function run(ctx: AgentContext): Promise<AgentOutput> {
   const { query, product, competitor, priorContext } = ctx;
   const sources: AgentSource[] = [];
+  let trendSummary = '';
 
   // Step 0: Resolve simulation_id for the active product
   const simulationId = getSimulationIdForProduct(product);
@@ -252,7 +253,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
       swarmSourceLabel = `MiroFish swarm — ${swarmBundle.totalCount} simulated personas polled`;
       if (trendsResult.status === 'fulfilled') {
         const td = trendsResult.value;
-        const trendSummary = Array.isArray(td.data)
+        trendSummary = Array.isArray(td.data)
           ? (td.data as Array<{ keyword?: string; value?: number }>)
               .slice(0, 3)
               .map(p => `${p.keyword ?? ''}: ${p.value ?? ''}`)
@@ -264,7 +265,6 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
           timestamp: td.timestamp,
           tool: 'serpapi',
         });
-        void trendSummary; // used below
       }
     }
 
@@ -316,7 +316,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     product,
     swarmResponses: swarmResponseTexts,
     swarmSize: swarmBundle.totalCount,
-    trendSummary: '',
+    trendSummary,
     priorContext,
   });
 

@@ -63,6 +63,15 @@ interface ClassificationResult {
   runExecution: boolean;  // true when query is execution-intent (write copy, outreach, variants, brief)
 }
 
+const VALID_DOMAINS: IntelligenceDomain[] = [
+  'market-trends',
+  'competitive',
+  'win-loss',
+  'pricing',
+  'positioning',
+  'adjacent',
+];
+
 interface OrchestrateOptions {
   injectedContext?: string; // extra context injected into agents and synthesizer (e.g. feedback loop)
   forceExecution?: boolean; // force stage-2 execution even when classifier says false
@@ -137,7 +146,7 @@ Set runExecution: false for pure research questions ("compare X vs Y", "what is 
       competitor: (parsed.competitor as string) ?? undefined,
       productUrl: (parsed.productUrl as string) ?? undefined,
       competitorUrl: (parsed.competitorUrl as string) ?? undefined,
-      domains: (parsed.domains as IntelligenceDomain[]) ?? ['market-trends', 'competitive', 'win-loss'],
+      domains: normalizeDomains(parsed.domains),
       intent: (parsed.intent as string) ?? query,
       runExecution: ((parsed.runExecution as boolean) ?? false) || regexExecution,
     };
@@ -174,6 +183,19 @@ function safeParseJson(raw: string): Record<string, unknown> {
     }
     return {};
   }
+}
+
+function normalizeDomains(rawDomains: unknown): IntelligenceDomain[] {
+  if (!Array.isArray(rawDomains)) {
+    return ['market-trends', 'competitive', 'win-loss'];
+  }
+  const filtered = rawDomains
+    .filter((domain): domain is IntelligenceDomain =>
+      typeof domain === 'string' && VALID_DOMAINS.includes(domain as IntelligenceDomain),
+    );
+  if (filtered.length >= 3) return filtered;
+  const merged = [...new Set([...filtered, 'market-trends', 'competitive', 'win-loss'])];
+  return merged.slice(0, 6) as IntelligenceDomain[];
 }
 
 // ── Synthesizer — merges all agent outputs into a final answer ────────────────
