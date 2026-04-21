@@ -65,12 +65,13 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   // Run Outreach Formatter with variants as input
   const outreachResult = await runOutreachFormatter(enrichedCtx, inputVariants).catch(() => null);
 
-  // ── Merge all sources ─────────────────────────────────────────────────────
-  const allSources: AgentSource[] = [
+  // ── Merge all sources (validated + deduped) ─────────────────────────────────
+  const { filterAndRankSources } = await import('@/lib/tools/source-validator');
+  const allSources: AgentSource[] = filterAndRankSources([
     ...(contentResult.status === 'fulfilled' ? contentResult.value.sources : []),
     ...(variantResult.status === 'fulfilled' ? variantResult.value.sources : []),
     ...(outreachResult ? outreachResult.sources : []),
-  ].filter((s, i, a) => s.url && a.findIndex(x => x.url === s.url) === i);  // dedupe
+  ], 12);
 
   // ── Merge facts + interpretation ──────────────────────────────────────────
   const allFacts = dedupeStrings([

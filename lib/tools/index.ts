@@ -13,6 +13,9 @@ export { assessScrapeQuality } from './scrape-quality';
 export { rankUrls, deduplicateUrls, discoverUrls } from './url-discovery';
 export { getPolicyForDomain, computeRetryDelay, describePolicyForLogging } from './retry-policy';
 
+// ── Source validation ────────────────────────────────────────────────────────
+export { isValidSourceUrl, isTrustedSource, filterAndRankSources, filterDisplaySources } from './source-validator';
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 export type {
   ToolResult,

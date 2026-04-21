@@ -23,6 +23,7 @@ import {
 import {
   rateRecommendation, recommendationKey, type RecommendationRating,
 } from '@/lib/feedback';
+import { filterDisplaySources } from '@/lib/tools/source-validator';
 
 // Per-session pgvector recall (semantic search over earlier turns in this chat)
 async function recallContextForSession(sessionId: string, query: string): Promise<string> {
@@ -683,10 +684,10 @@ export default function VeracityDashboard() {
                     score: r.confidence === 'high' ? 90 : r.confidence === 'medium' ? 65 : 40,
                     confidence: r.confidence, evidence: r.evidence, priority: r.priority,
                   })),
-                  sources: out.outputs
-                    ?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? [])
-                    .filter((s, i, a) => s.url && a.findIndex(x => x.url === s.url) === i)
-                    .slice(0, 12),
+                  sources: filterDisplaySources(
+                    out.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? []) ?? [],
+                    12,
+                  ),
                   suggestions: out.suggestedFollowUps?.slice(0, 3),
                 } : m
               ));
@@ -748,10 +749,10 @@ export default function VeracityDashboard() {
       indexMessageInBackground(sessionId, 'user', effectiveText);
 
       if (finalOutput) {
-        const sources = finalOutput.outputs
-          ?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? [])
-          .filter((s, i, a) => s.url && a.findIndex(x => x.url === s.url) === i)
-          .slice(0, 12);
+        const sources = filterDisplaySources(
+          finalOutput.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? []) ?? [],
+          12,
+        );
 
         const persistedAssistantId = await saveMessage(sessionId, 'assistant', finalOutput.synthesizedAnswer, {
           type: 'intelligence',
@@ -850,10 +851,10 @@ export default function VeracityDashboard() {
             const chunk = JSON.parse(line.slice(6));
             if (chunk.type === 'result') {
               const out: OrchestratorOutput = chunk.output;
-              const sources = out.outputs
-                ?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? [])
-                .filter((s, i, a) => s.url && a.findIndex(x => x.url === s.url) === i)
-                .slice(0, 6);
+              const sources = filterDisplaySources(
+                out.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? []) ?? [],
+                6,
+              );
               setFollowUps(prev => prev.map(f =>
                 f.id === fuId ? { ...f, answer: out.synthesizedAnswer, sources, loading: false } : f
               ));

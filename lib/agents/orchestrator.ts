@@ -8,6 +8,7 @@ import { executionEngineAgent } from './execution/execution-engine';
 import { mirofishAgent } from './mirofish';
 import { detectExecutionIntent } from './execution-intent';
 import { generateHuggingFaceText } from './gemini';
+import { filterAndRankSources } from '@/lib/tools/source-validator';
 import type {
   AgentConfig,
   AgentContext,
@@ -373,7 +374,7 @@ Return ONLY valid JSON (no markdown, no fences):
       confidenceScore: avgScore,
       facts: [],
       interpretation: [],
-      sources: outputs.flatMap(o => o.sources).slice(0, 10),
+      sources: filterAndRankSources(outputs.flatMap(o => o.sources), 10),
       generatedAt: new Date().toISOString(),
       artifactType: 'mind-map',
       centralTopic: (parsed.centralTopic as string) ?? product,
@@ -523,13 +524,18 @@ export async function orchestrate(
     outputs.push(mindMapResult);
   }
 
-  // Step 5: Compute overall confidence
+  // Step 5: Filter & rank sources across all agent outputs
+  for (const output of outputs) {
+    output.sources = filterAndRankSources(output.sources, 8);
+  }
+
+  // Step 6: Compute overall confidence
   const avgConfidence = outputs.length > 0
     ? outputs.reduce((sum, o) => sum + o.confidenceScore, 0) / outputs.length
     : 0.5;
   const totalConfidence: ConfidenceLevel = scoreToLevel(avgConfidence);
 
-  // Step 6: Build run metrics
+  // Step 7: Build run metrics
   // Tool call count: each successful agent typically makes 2-4 tool calls.
   // We estimate based on completed agents (a rough heuristic — agents don't
   // currently report exact tool call counts back).
