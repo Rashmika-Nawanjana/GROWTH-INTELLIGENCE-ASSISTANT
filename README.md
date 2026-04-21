@@ -11,6 +11,8 @@
 
 ---
 
+
+
 ## Overview
 
 Growth Intelligence Assistant is a full-stack web application designed to give product teams, founders, and growth strategists instant access to structured market intelligence. Instead of manually trawling through competitor sites, Reddit threads, news articles, and pricing pages — you simply ask a question, and up to 9 specialist AI agents fan out to gather, analyse, synthesise, and **execute** in real time.
