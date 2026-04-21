@@ -15,6 +15,10 @@ import type {
 import { scoreToLevel } from './types';
 import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
 
+function isSocialUrl(url: string): boolean {
+  return /(?:^|\/\/)(?:www\.)?(x\.com|twitter\.com|linkedin\.com|instagram\.com)\//i.test(url);
+}
+
 async function run(ctx: AgentContext): Promise<AgentOutput> {
   const { query, product, competitor, priorContext } = ctx;
 
@@ -100,6 +104,29 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     });
   }
 
+  // If the first pass yields no social links, do strict per-domain backfill.
+  const hasSocialSources = sources.some(s => isSocialUrl(s.url));
+  const socialBackfillResults = hasSocialSources
+    ? []
+    : await Promise.allSettled([
+        searchWeb(`site:x.com "${product}"${competitor ? ` OR "${competitor}"` : ''} launch OR feedback OR pricing`),
+        searchWeb(`site:twitter.com "${product}"${competitor ? ` OR "${competitor}"` : ''} launch OR feedback OR pricing`),
+        searchWeb(`site:linkedin.com "${product}"${competitor ? ` OR "${competitor}"` : ''} announcement OR hiring OR product update`),
+        searchWeb(`site:instagram.com "${product}"${competitor ? ` OR "${competitor}"` : ''} product OR campaign`),
+      ]);
+
+  for (const result of socialBackfillResults) {
+    if (result.status === 'fulfilled') {
+      result.value.data
+        .filter(r => isSocialUrl(r.url))
+        .slice(0, 2)
+        .forEach(r => {
+          sources.push({ url: r.url, title: r.title, timestamp: result.value.timestamp, tool: 'serpapi' });
+          rawContent.push(`[SOCIAL BACKFILL] ${r.title}: ${r.snippet}`);
+        });
+    }
+  }
+
   // ── Gemini synthesis ───────────────────────────────────────────────────────
   const systemPrompt = `You are a senior market intelligence analyst. Your job is to analyse raw signals and produce structured, grounded market trend insights.
 
@@ -160,8 +187,18 @@ Produce a JSON object with this exact shape:
   // Penalise the Gemini-reported score by the aggregate signal quality of the
   // tool calls that fed it — a synthesis with 3 failed tools shouldn't get the
   // same confidence as one with all tools succeeding.
-  const toolResults = extractToolResults([webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult, socialPulseResult]);
-  const signalPenalty = computeSignalQualityPenalty(toolResults, 8);
+  const toolResults = extractToolResults([
+    webResult,
+    newsResult,
+    trendsResult,
+    hnResult,
+    redditResult,
+    webTargetedResult,
+    webHypothesisResult,
+    socialPulseResult,
+    ...socialBackfillResults,
+  ]);
+  const signalPenalty = computeSignalQualityPenalty(toolResults, 8 + socialBackfillResults.length);
   const confScore = Number.parseFloat((rawScore * signalPenalty).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
