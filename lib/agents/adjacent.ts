@@ -1,7 +1,7 @@
 import { searchWeb, searchNews } from '../tools/serpapi';
 import { getTechSentiment } from '../tools/hn-algolia';
 import { searchReddit } from '../tools/reddit';
-import { generateHuggingFaceJson } from './hugging-face';
+import { generateHuggingFaceJson } from './gemini';
 import type {
   AgentConfig,
   AgentContext,

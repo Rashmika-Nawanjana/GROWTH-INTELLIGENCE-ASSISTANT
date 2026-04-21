@@ -13,7 +13,7 @@
 import { scrapePage } from '../../tools/firecrawl';
 import { searchReddit } from '../../tools/reddit';
 import { searchNews } from '../../tools/serpapi';
-import { generateHuggingFaceJson } from '../hugging-face';
+import { generateHuggingFaceJson } from '../gemini';
 import type {
   AgentContext,
   AgentOutput,

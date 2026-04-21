@@ -10,7 +10,7 @@
 
 import { interviewSwarm, isSimulationReady, getSimulationIdForProduct } from '../tools/mirofish';
 import { searchTrends } from '../tools/serpapi';
-import { generateHuggingFaceText, generateHuggingFaceJson } from './hugging-face';
+import { generateHuggingFaceText, generateHuggingFaceJson } from './gemini';
 import type {
   AgentConfig,
   AgentContext,

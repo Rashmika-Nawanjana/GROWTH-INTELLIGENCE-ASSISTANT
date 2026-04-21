@@ -14,7 +14,7 @@
 
 import { searchWeb } from '../../tools/serpapi';
 import { scrapePage } from '../../tools/firecrawl';
-import { generateHuggingFaceJson } from '../hugging-face';
+import { generateHuggingFaceJson } from '../gemini';
 import type {
   AgentContext,
   AgentOutput,

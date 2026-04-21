@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { generateHuggingFaceJson } from '@/lib/agents/hugging-face';
+import { generateHuggingFaceJson } from '@/lib/agents/gemini';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import type { UserMemory, MemoryFact } from '@/lib/memory';

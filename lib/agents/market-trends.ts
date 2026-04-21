@@ -2,7 +2,7 @@ import { searchWeb, searchNews, searchTrends } from '../tools/serpapi';
 import { searchHN, getTechSentiment } from '../tools/hn-algolia';
 import { searchReddit } from '../tools/reddit';
 import { planQueries } from '../tools/query-planner';
-import { generateHuggingFaceJson } from './hugging-face';
+import { generateHuggingFaceJson } from './gemini';
 import type {
   AgentConfig,
   AgentContext,

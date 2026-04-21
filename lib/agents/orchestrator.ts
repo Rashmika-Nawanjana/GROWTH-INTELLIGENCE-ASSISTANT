@@ -7,7 +7,7 @@ import { adjacentAgent } from './adjacent';
 import { executionEngineAgent } from './execution/execution-engine';
 import { mirofishAgent } from './mirofish';
 import { detectExecutionIntent } from './execution-intent';
-import { generateHuggingFaceText } from './hugging-face';
+import { generateHuggingFaceText } from './gemini';
 import type {
   AgentConfig,
   AgentContext,

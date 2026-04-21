@@ -1,7 +1,7 @@
 import { searchWeb, searchNews } from '../tools/serpapi';
 import { scrapePage, scrapeCompetitorPricing } from '../tools/firecrawl';
 import { searchHN } from '../tools/hn-algolia';
-import { generateHuggingFaceJson } from './hugging-face';
+import { generateHuggingFaceJson } from './gemini';
 import type {
   AgentConfig,
   AgentContext,

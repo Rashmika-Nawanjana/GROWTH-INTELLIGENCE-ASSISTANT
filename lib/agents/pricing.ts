@@ -1,7 +1,7 @@
 import { searchWeb } from '../tools/serpapi';
 import { scrapePage, scrapeCompetitorPricing } from '../tools/firecrawl';
 import { searchReddit } from '../tools/reddit';
-import { generateHuggingFaceJson } from './hugging-face';
+import { generateHuggingFaceJson } from './gemini';
 import type {
   AgentConfig,
   AgentContext,

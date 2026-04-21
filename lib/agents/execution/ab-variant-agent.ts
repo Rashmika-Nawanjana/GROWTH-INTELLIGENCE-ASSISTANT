@@ -16,7 +16,7 @@
 import { searchMetaAds } from '../../tools/meta-ads';
 import { searchHN } from '../../tools/hn-algolia';
 import { searchWeb } from '../../tools/serpapi';
-import { generateHuggingFaceJson } from '../hugging-face';
+import { generateHuggingFaceJson } from '../gemini';
 import type {
   AgentContext,
   AgentOutput,
