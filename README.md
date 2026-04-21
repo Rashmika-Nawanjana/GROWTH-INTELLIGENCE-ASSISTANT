@@ -2,8 +2,6 @@
 
 > A multi-agent AI platform that delivers real-time, confidence-scored competitive intelligence across 6 specialist domains — then converts findings into shipped campaigns with a closed feedback loop.
 
-
-
 ![Tech Stack](https://img.shields.io/badge/Next.js-15-black?logo=next.js)
 ![AI](https://img.shields.io/badge/Gemini_2.0_Flash-AI-blue?logo=google)
 ![Database](https://img.shields.io/badge/Supabase-Database-green?logo=supabase)
