@@ -54,6 +54,7 @@ const LIVE_SIMULATIONS_MAP: Record<string, string> = parseLiveSimulations(
   process.env.MIROFISH_LIVE_SIMULATIONS
 );
 const LIVE_DEFAULT_SIM_ID = process.env.MIROFISH_LIVE_DEFAULT_SIMULATION_ID?.trim();
+const LIVE_STRICT_SERIAL_MODE = (process.env.MIROFISH_LIVE_STRICT_SERIAL_MODE ?? '1') !== '0';
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -193,17 +194,24 @@ export async function interviewLiveSwarm(
   }
 
   const platform = options.platform ?? 'reddit';
-  const perAgentTimeoutSec = options.timeoutSec ?? 40;
-  const desiredMaxAgents = options.maxAgents ?? 3;
+  const perAgentTimeoutSec = options.timeoutSec ?? 30;
+  const desiredMaxAgents = LIVE_STRICT_SERIAL_MODE
+    ? 1
+    : (options.maxAgents ?? 3);
 
   const allAgentIds = await fetchLiveAgentIds(simulationId, Math.max(5, desiredMaxAgents));
   if (allAgentIds.length === 0) throw new Error('No agents found in live simulation config');
 
-  const retryPlan = [
-    { maxPromptChars: 220, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
-    { maxPromptChars: 140, maxAgents: Math.min(2, allAgentIds.length) },
-    { maxPromptChars: 90, maxAgents: 1 },
-  ];
+  const retryPlan = LIVE_STRICT_SERIAL_MODE
+    ? [
+        { maxPromptChars: 90, maxAgents: 1 },
+        { maxPromptChars: 60, maxAgents: 1 },
+      ]
+    : [
+        { maxPromptChars: 220, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
+        { maxPromptChars: 140, maxAgents: Math.min(2, allAgentIds.length) },
+        { maxPromptChars: 90, maxAgents: 1 },
+      ];
 
   let lastError = '';
   let bestResponses: SwarmInterviewResponse[] = [];
