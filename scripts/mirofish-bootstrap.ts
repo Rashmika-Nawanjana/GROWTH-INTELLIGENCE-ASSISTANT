@@ -77,22 +77,49 @@ async function apiGet(path: string): Promise<unknown> {
 
 // ── Pipeline steps ────────────────────────────────────────────────────────────
 
-/** Step 1: Upload seed file and build knowledge graph */
-async function buildGraph(seedFilePath: string, projectId: string): Promise<{ graph_id: string; task_id: string }> {
+/** Step 1a: Upload seed file and generate ontology (returns project_id synchronously) */
+async function generateOntology(seedFilePath: string, productName: string): Promise<string> {
   const formData = new FormData();
   const fileContent = fs.readFileSync(seedFilePath);
   const fileName = path.basename(seedFilePath);
-  formData.append('file', new Blob([fileContent]), fileName);
-  formData.append('project_id', projectId);
+  formData.append('files', new Blob([fileContent]), fileName);
+  formData.append('project_name', productName);
+  formData.append('simulation_requirement',
+    `Generate a swarm simulation of ${productName} customers, analysts, and competitors ` +
+    `to provide growth intelligence, market positioning insights, and competitive analysis.`);
 
-  const res = await fetch(`${BASE_URL}/api/graph/build`, {
+  const res = await fetch(`${BASE_URL}/api/graph/ontology/generate`, {
     method: 'POST',
     body: formData,
   });
 
-  const json = await res.json() as { success: boolean; data?: { task_id: string; graph_id?: string }; error?: string };
+  const json = await res.json() as { success: boolean; data?: { project_id: string }; error?: string };
+  if (!json.success) throw new Error(`Ontology generation failed: ${json.error ?? 'unknown'}`);
+  const projectId = json.data?.project_id;
+  if (!projectId) throw new Error('Ontology generation returned no project_id');
+  return projectId;
+}
+
+/** Step 1b: Trigger async knowledge graph build for a project */
+async function buildGraph(projectId: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}/api/graph/build`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project_id: projectId }),
+  });
+
+  const json = await res.json() as { success: boolean; data?: { task_id: string }; error?: string };
   if (!json.success) throw new Error(`Graph build failed: ${json.error ?? 'unknown'}`);
-  return { graph_id: json.data?.graph_id ?? '', task_id: json.data?.task_id ?? '' };
+  const taskId = json.data?.task_id;
+  if (!taskId) throw new Error('Graph build returned no task_id');
+  return taskId;
+}
+
+/** Fetch project to extract graph_id after build completes */
+async function getProjectGraphId(projectId: string): Promise<string> {
+  const data = await apiGet(`/api/graph/project/${projectId}`) as { graph_id?: string };
+  if (!data.graph_id) throw new Error(`Project ${projectId} has no graph_id after build`);
+  return data.graph_id;
 }
 
 /** Poll graph task until completed */
@@ -105,16 +132,16 @@ async function pollGraphTask(taskId: string, timeoutMs = 180_000): Promise<{ gra
     try {
       const data = await apiGet(`/api/graph/task/${taskId}`) as { status: string; graph_id?: string; result?: { graph_id?: string } };
       if (data.status === 'completed') {
-        const graphId = data.graph_id ?? (data.result as any)?.graph_id ?? '';
-        spin.stop(`Knowledge graph built: ${graphId}`);
-        return { graph_id: graphId };
+        spin.stop(`Knowledge graph built (task ${taskId})`);
+        return { graph_id: data.graph_id ?? (data.result as any)?.graph_id ?? '' };
       }
       if (data.status === 'failed') {
         spin.stop('Graph build failed');
         throw new Error(`Graph task ${taskId} failed`);
       }
-    } catch (e) {
-      // transient error — keep polling
+    } catch (e: any) {
+      if (e?.message?.includes('failed')) throw e; // propagate real failures
+      // transient network error — keep polling
     }
   }
 
@@ -237,15 +264,17 @@ async function main() {
 
   console.log(`\n📦 Setting up simulation for "${productName}"…`);
 
-  // Derive a project ID from the product name
-  const projectId = `veracity-${productName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
-  console.log(`  Project ID: ${projectId}`);
+  // Step 1a: Generate ontology (creates project, processes file)
+  console.log('\n1️⃣  Generating ontology from seed file (may take 1–2 min)…');
+  const projectId = await generateOntology(seedFilePath, productName);
+  console.log(`  ✅ Ontology generated. Project ID: ${projectId}`);
 
-  // Step 1: Build knowledge graph
-  console.log('\n1️⃣  Building knowledge graph…');
-  const { task_id: graphTaskId } = await buildGraph(seedFilePath, projectId);
-  const { graph_id: graphId } = await pollGraphTask(graphTaskId);
-  if (!graphId) throw new Error('Graph build succeeded but returned no graph_id');
+  // Step 1b: Build knowledge graph (async)
+  console.log('\n   Building knowledge graph…');
+  const graphTaskId = await buildGraph(projectId);
+  await pollGraphTask(graphTaskId);
+  const graphId = await getProjectGraphId(projectId);
+  console.log(`  ✅ Graph ID: ${graphId}`);
 
   // Step 2: Create simulation
   console.log('\n2️⃣  Creating simulation…');
