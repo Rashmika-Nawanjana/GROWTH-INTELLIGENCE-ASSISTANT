@@ -78,6 +78,8 @@ interface OrchestrateOptions {
   forceExecution?: boolean; // force stage-2 execution even when classifier says false
   followUpMode?: 'full' | 'targeted'; // targeted runs only classifier-selected research domains
   selectedAgents?: string[]; // optional UI-selected domains from client
+  /** Live status lines for the UI (e.g. “Reasoning…”, “Orchestrating…”). */
+  onOrchestrationLog?: (message: string) => void;
 }
 
 async function classifyQuery(
@@ -397,8 +399,10 @@ export async function orchestrate(
   options?: OrchestrateOptions,
 ): Promise<OrchestratorOutput> {
   const orchestrationStart = Date.now();
+  const log = options?.onOrchestrationLog;
 
   // Step 1: Classify query and extract context  (1 model call)
+  log?.('Reasoning about your query and selecting intelligence domains…');
   const classification = await classifyQuery(query, history, images, memoryContext);
   let modelCallCount = 1;
 
@@ -440,6 +444,10 @@ export async function orchestrate(
   const agentsToRun = options?.followUpMode === 'targeted'
     ? (targetedAgents.length > 0 ? targetedAgents : availableResearchAgents)
     : availableResearchAgents;
+
+  const sweepLabel = options?.followUpMode === 'targeted' ? 'targeted follow-up' : 'full research sweep';
+  log?.(`Dividing work across ${agentsToRun.length} specialist agents (${sweepLabel})…`);
+  log?.('Orchestrating parallel research — search, fetch, and extract…');
 
   // Initialise agent run tracking
   const agentRuns: AgentRun[] = agentsToRun.map(a => ({
@@ -483,6 +491,7 @@ export async function orchestrate(
 
   // ── Stage 2: Execution Engine (only if execution intent detected) ──────────
   if (shouldRunExecution) {
+    log?.('Execution intent detected — running execution engine for deliverables…');
     const execStart = Date.now();
     const execRun: AgentRun = {
       agentId: 'execution-engine',
@@ -512,6 +521,7 @@ export async function orchestrate(
   }
 
   // Step 4: Synthesise + generate mind map in parallel (2 model calls)
+  log?.('Reasoning over findings — synthesizing answer and strategic mind map…');
   const [synthesisResult, mindMapResult] = await Promise.all([
     synthesize(query, outputs, history, images, synthesisMemoryContext),
     generateMindMap(query, product, outputs),
@@ -579,8 +589,10 @@ export async function runMirofishAgent(
   onAgentUpdate?: (run: AgentRun) => void,
   images: ImageAttachment[] = [],
   memoryContext?: string,
+  onOrchestrationLog?: (message: string) => void,
 ): Promise<AgentOutput | null> {
   // Re-classify so mirofish has the same product context as the main run
+  onOrchestrationLog?.('MiroFish: refreshing product context…');
   const classification = await classifyQuery(query, history, images, memoryContext);
   const { product, competitor, productUrl, competitorUrl, intent } = classification;
 
@@ -604,6 +616,7 @@ export async function runMirofishAgent(
   onAgentUpdate?.(run);
 
   try {
+    onOrchestrationLog?.('MiroFish: running forecast agent…');
     const output = await mirofishAgent.run(agentContext);
     onAgentUpdate?.({ ...run, status: 'completed', completedAt: new Date().toISOString() });
     return output;

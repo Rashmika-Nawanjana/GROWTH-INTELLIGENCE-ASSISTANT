@@ -20,6 +20,7 @@ interface LiveMetrics {
 
 type StreamChunk =
   | { type: 'agent_update'; run: AgentRun; metrics: LiveMetrics }
+  | { type: 'orchestration_log'; line: string }
   | { type: 'result'; output: OrchestratorOutput }
   | { type: 'mirofish_result'; output: AgentOutput }
   | { type: 'error'; message: string };
@@ -121,6 +122,7 @@ export async function POST(req: NextRequest) {
   // Run orchestration in background, stream updates to frontend
   (async () => {
     try {
+      write({ type: 'orchestration_log', line: 'Starting orchestration…' });
       // ── Stage 1+2: 6 research agents (+ execution engine if needed) ────────
       const result = await orchestrate(
         query,
@@ -131,7 +133,11 @@ export async function POST(req: NextRequest) {
         },
         images,
         memoryContext,
-        { followUpMode, selectedAgents },
+        {
+          followUpMode,
+          selectedAgents,
+          onOrchestrationLog: (line: string) => write({ type: 'orchestration_log', line }),
+        },
       );
       // Send main result — frontend renders immediately, no need to wait for MiroFish
       write({ type: 'result', output: result });
@@ -148,6 +154,7 @@ export async function POST(req: NextRequest) {
             },
             images,
             memoryContext,
+            (line: string) => write({ type: 'orchestration_log', line }),
           );
           if (mirofishOutput) {
             write({ type: 'mirofish_result', output: mirofishOutput });
