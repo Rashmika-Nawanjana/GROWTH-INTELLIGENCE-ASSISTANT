@@ -153,6 +153,28 @@ async function fetchLivePostResponses(
   }
 }
 
+async function fetchLivePostResponsesMultiPlatform(
+  simulationId: string,
+  preferredPlatform: 'twitter' | 'reddit',
+  limitPerPlatform = 8,
+): Promise<SwarmInterviewResponse[]> {
+  const platforms: Array<'twitter' | 'reddit'> =
+    preferredPlatform === 'reddit' ? ['reddit', 'twitter'] : ['twitter', 'reddit'];
+  const batches = await Promise.all(
+    platforms.map(p => fetchLivePostResponses(simulationId, p, limitPerPlatform))
+  );
+  const merged = batches.flat();
+  const seen = new Set<string>();
+  const unique: SwarmInterviewResponse[] = [];
+  for (const r of merged) {
+    const key = `${r.platform}:${r.agent_id}:${r.response}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(r);
+  }
+  return unique;
+}
+
 function trimInterviewPrompt(prompt: string, maxChars: number): string {
   const cleaned = prompt
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
@@ -319,7 +341,7 @@ export async function interviewLiveSwarm(
     /rate_limit_exceeded|Request too large|TPM|tokens per minute|413|invalid JSON schema|等待IPC响应超时|timeout/i
       .test(lastError);
   if (canUsePostFallback) {
-    const postResponses = await fetchLivePostResponses(simulationId, platform, 12);
+    const postResponses = await fetchLivePostResponsesMultiPlatform(simulationId, platform, 8);
     if (postResponses.length > 0) {
       return {
         data: {
