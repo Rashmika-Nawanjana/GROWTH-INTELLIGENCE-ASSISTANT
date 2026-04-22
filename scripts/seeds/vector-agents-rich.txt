@@ -1,0 +1,41 @@
+Vector Agents (Lilian) — richer simulation seed for persona diversity.
+
+Product:
+- AI SDR platform for outbound prospecting, research, personalized email, follow-up, and meeting booking.
+- Targets B2B SaaS GTM teams from SMB to enterprise.
+
+Core stakeholder personas to include:
+1) VP Sales at SMB SaaS
+2) VP Sales at enterprise SaaS
+3) SDR Manager
+4) Account Executive
+5) RevOps Manager
+6) Demand Gen Lead
+7) Product Marketing Manager
+8) Founder/CEO at startup
+9) CRO at scale-up
+10) Sales Enablement Lead
+11) Customer Success Lead
+12) Procurement/Finance buyer
+13) Security/IT reviewer
+14) Agency growth consultant
+15) Competitive vendor representative
+
+Key concerns and discussion themes:
+- Lead quality vs volume
+- Personalization quality at scale
+- Reply rates and booked meetings
+- Deliverability and domain reputation
+- CRM integration quality
+- Data privacy and compliance
+- Pricing transparency and ROI proof
+- Ramp time for new SDR teams
+- Human SDR + AI handoff quality
+
+Competitor context:
+- Clay, Apollo, Instantly, Outreach, Salesloft, Reply.io, and in-house workflows.
+
+Desired output behavior:
+- Balanced opinions (bullish, bearish, neutral)
+- Explicit trade-offs (cost, risk, speed, quality)
+- Practical GTM recommendations for next 6-12 months.
