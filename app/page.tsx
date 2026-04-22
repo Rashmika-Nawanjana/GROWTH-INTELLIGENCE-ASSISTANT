@@ -8,8 +8,10 @@ import {
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Check, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon, Rocket, Fish, CheckCheck, Sparkles,
-  ThumbsUp, ThumbsDown,
+  ThumbsUp, ThumbsDown, BarChart3, Crosshair,
 } from 'lucide-react';
+import { ApiUsagePanel } from '@/components/ApiUsagePanel';
+import { StealStrategyPanel } from '@/components/StealStrategyPanel';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput, RefinementDelta } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
@@ -427,6 +429,16 @@ export default function VeracityDashboard() {
     Object.fromEntries(ALL_DOMAINS.map(d => [d, d !== 'mirofish-live'])) as Record<Domain, boolean>
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  /** Top header tabs: main intelligence vs usage vs steal strategy. */
+  const [topTab, setTopTab] = useState<'intelligence' | 'usage' | 'steal'>('intelligence');
+  /** Rolling totals for API Usage tab (reset on new query). */
+  const [sessionUsage, setSessionUsage] = useState({
+    queries: 0,
+    totalCostUsd: 0,
+    totalLatencyMs: 0,
+    totalGeminiCalls: 0,
+    totalToolCalls: 0,
+  });
 
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const followUpEndRef  = useRef<HTMLDivElement>(null);
@@ -699,6 +711,17 @@ export default function VeracityDashboard() {
             if (chunk.type === 'result') {
               const out: OrchestratorOutput = chunk.output;
               finalOutput = out;
+              if (out.metrics) {
+                setSessionUsage(prev => ({
+                  queries: prev.queries + 1,
+                  totalCostUsd: prev.totalCostUsd + out.metrics!.estimatedCostUsd,
+                  totalLatencyMs: prev.totalLatencyMs + out.metrics!.totalLatencyMs,
+                  totalGeminiCalls: prev.totalGeminiCalls + out.metrics!.geminiCallCount,
+                  totalToolCalls: prev.totalToolCalls + out.metrics!.toolCallCount,
+                }));
+              } else {
+                setSessionUsage(prev => ({ ...prev, queries: prev.queries + 1 }));
+              }
               // If mirofish was requested, mark it as running so the sidebar shows it
               if (selectedAgents.mirofish) {
                 setMirofishRunning(true);
@@ -934,6 +957,17 @@ export default function VeracityDashboard() {
             const chunk = JSON.parse(line.slice(6));
             if (chunk.type === 'result') {
               const out: OrchestratorOutput = chunk.output;
+              if (out.metrics) {
+                setSessionUsage(prev => ({
+                  queries: prev.queries + 1,
+                  totalCostUsd: prev.totalCostUsd + out.metrics!.estimatedCostUsd,
+                  totalLatencyMs: prev.totalLatencyMs + out.metrics!.totalLatencyMs,
+                  totalGeminiCalls: prev.totalGeminiCalls + out.metrics!.geminiCallCount,
+                  totalToolCalls: prev.totalToolCalls + out.metrics!.toolCallCount,
+                }));
+              } else {
+                setSessionUsage(prev => ({ ...prev, queries: prev.queries + 1 }));
+              }
               const sources = filterDisplaySources(
                 out.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? []) ?? [],
                 6,
@@ -976,6 +1010,7 @@ export default function VeracityDashboard() {
     setFollowUps([]);
     setExpandedDomain(null);
     setAttachedImages([]);
+    setSessionUsage({ queries: 0, totalCostUsd: 0, totalLatencyMs: 0, totalGeminiCalls: 0, totalToolCalls: 0 });
   };
   const getRunForDomain = (d: Domain) => {
     const runs = currentResult?.agentRuns ?? [];
@@ -1329,7 +1364,34 @@ export default function VeracityDashboard() {
             </div>
           </div>
 
-          {/* Search bar — prominent, scrollable textarea */}
+          {/* Top-level view tabs (intelligence / usage / strategy) */}
+          <div
+            className="flex flex-wrap items-center gap-1.5 px-4 md:px-6 border-t"
+            style={{ borderColor: borderC, paddingTop: 6, paddingBottom: 6 }}
+          >
+            {[
+              { id: 'intelligence' as const, label: 'Intelligence', icon: <Sparkles size={12} /> },
+              { id: 'usage' as const, label: 'API usage', icon: <BarChart3 size={12} /> },
+              { id: 'steal' as const, label: 'Steal strategy', icon: <Crosshair size={12} /> },
+            ].map(tab => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setTopTab(tab.id)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors"
+                style={{
+                  color: topTab === tab.id ? textMain : textMuted,
+                  background: topTab === tab.id ? (isDark ? 'rgba(0,112,243,0.12)' : 'rgba(0,112,243,0.08)') : 'transparent',
+                  border: topTab === tab.id ? '1px solid rgba(0,112,243,0.25)' : '1px solid transparent',
+                }}
+              >
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Search bar — only on Intelligence tab */}
+          {topTab === 'intelligence' && (
           <div className="px-4 md:px-6 pb-4 pt-1">
             {attachedImages.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-2">
@@ -1393,11 +1455,25 @@ export default function VeracityDashboard() {
               <input ref={fileInputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFileChange} />
             </div>
           </div>
+          )}
         </header>
 
         {/* ── Body ── */}
         <div className="flex-1 overflow-y-auto grid-bg" style={{ padding: 'clamp(16px, 3vw, 32px)' }}>
           <div className="flex flex-col gap-7 max-w-[1400px] w-full mx-auto">
+
+            {topTab === 'usage' && (
+              <ApiUsagePanel
+                lastMetrics={currentResult?.orchestratorOutput?.metrics}
+                lastLive={currentResult?.liveMetrics}
+                sessionTotals={sessionUsage}
+              />
+            )}
+
+            {topTab === 'steal' && <StealStrategyPanel />}
+
+            {topTab === 'intelligence' && (
+            <>
 
             {/* Empty state */}
             {messages.length === 0 && !isLoading && (
@@ -2047,6 +2123,9 @@ export default function VeracityDashboard() {
             )}
 
             <div className="h-4" />
+            </>
+            )}
+
           </div>
         </div>
       </div>
