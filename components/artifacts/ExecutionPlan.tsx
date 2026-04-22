@@ -408,6 +408,7 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
   const [activeVariantIdx, setActiveVariantIdx] = useState(0);
   const [isRefining, setIsRefining] = useState(false);
   const [refineStatus, setRefineStatus] = useState<string | null>(null);
+  const [refineHadError, setRefineHadError] = useState(false);
   const [variantsWithResults, setVariantsWithResults] = useState<Set<string>>(new Set());
   const [completedSteps, setCompletedSteps] = useState<Set<number>>(new Set());
   const [publishedSteps, setPublishedSteps] = useState<Set<number>>(new Set());
@@ -473,15 +474,26 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
     if (!sessionId || !messageId || isRefining) return;
     setIsRefining(true);
     setRefineStatus('Pulling feedback…');
+    setRefineHadError(false);
     try {
       const result = await refineExecutionPlan({ sessionId, messageId });
-      if (result?.executionPlan) {
+      if (result.ok) {
         const { recommendationFeedback, recommendationActions, variantResults } = result.feedbackApplied;
         setRefineStatus(`Refined: ${variantResults} results, ${recommendationFeedback} ratings, ${recommendationActions} actions`);
         onRefined?.({ plan: result.executionPlan, orchestratorOutput: result.orchestratorOutput, changes: result.changes });
-      } else { setRefineStatus('Refine failed'); }
-    } catch { setRefineStatus('Refine failed'); }
-    finally { setIsRefining(false); setTimeout(() => setRefineStatus(null), 4000); }
+        setTimeout(() => setRefineStatus(null), 5000);
+      } else {
+        setRefineHadError(true);
+        setRefineStatus(result.error);
+        setTimeout(() => setRefineStatus(null), 12000);
+      }
+    } catch (e) {
+      setRefineHadError(true);
+      setRefineStatus(e instanceof Error ? e.message : 'Refine failed');
+      setTimeout(() => setRefineStatus(null), 12000);
+    } finally {
+      setIsRefining(false);
+    }
   };
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
@@ -518,7 +530,14 @@ export function ExecutionPlan({ output, product, sessionId, messageId, onRefined
         </div>
       </div>
       {refineStatus && (
-        <div className="px-5 py-2 text-[11px] font-mono" style={{ background: 'rgba(0,112,243,0.05)', color: '#0070f3', borderBottom: `1px solid ${borderC}` }}>
+        <div
+          className="px-5 py-2 text-[11px] font-mono"
+          style={{
+            background: refineHadError ? 'rgba(239,68,68,0.08)' : 'rgba(0,112,243,0.05)',
+            color: refineHadError ? '#f87171' : '#0070f3',
+            borderBottom: `1px solid ${borderC}`,
+          }}
+        >
           {refineStatus}
         </div>
       )}
