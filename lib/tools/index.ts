@@ -6,6 +6,7 @@ export { searchHN, searchHNComments, getTechSentiment } from './hn-algolia';
 export { searchMetaAds, getAdMessaging } from './meta-ads';
 export { scrapeLinkedInAds, scrapeCompetitorLinkedInAds } from './linkedin-ads';
 export { searchPatents, companyPatents } from './patents';
+export { scrapeTwitterX } from './apify-twitter';
 
 // ── Smart scraping utilities ──────────────────────────────────────────────────
 export { planQueries, extractKeywords } from './query-planner';
@@ -29,6 +30,7 @@ export type {
   LinkedInAd,
   Patent,
 } from './types';
+export type { ApifyTweet } from './apify-twitter';
 
 export type { QueryBundle, QueryPlanContext } from './query-planner';
 export type { ScrapeQualityReport } from './scrape-quality';
