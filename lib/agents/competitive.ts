@@ -35,7 +35,6 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     compUrl ? scrapeCompetitorPricing(compUrl) : skippedScrapePromise(),
     searchWeb(`${competitorName} ${product} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com launch feature feedback`),
     scrapeTwitterX([`${competitorName} ${product}`, `${competitorName} launch feedback`], {
-      handles: [competitorName].filter(Boolean),
       maxItems: 80,
       sort: 'Latest',
       language: 'en',

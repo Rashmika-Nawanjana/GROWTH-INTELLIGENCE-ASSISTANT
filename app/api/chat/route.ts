@@ -4,7 +4,8 @@ import { createClient } from '@/lib/supabase-server';
 import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment, AgentOutput } from '../../../lib/agents/types';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120; // 2 min budget for parallel agents
+// Vercel Pro: up to 120s (config). Hobby plan still enforces ~60s wall clock — keep Apify wait (APIFY_MAX_WAIT_SECS) low enough to finish.
+export const maxDuration = 120;
 
 // ── Streaming chunk types ─────────────────────────────────────────────────────
 interface LiveMetrics {

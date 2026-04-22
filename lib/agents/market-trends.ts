@@ -49,8 +49,9 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     searchWeb(queryBundle.targeted),
     searchWeb(queryBundle.hypothesis),
     searchWeb(`${product}${competitor ? ` ${competitor}` : ''} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com trend launch feedback`),
+    // Search terms carry product/competitor; do not pass company names as twitterHandles
+    // (they are not @handles and waste Apify or return empty).
     scrapeTwitterX([queryBundle.targeted, queryBundle.hypothesis], {
-      handles: [product, competitor].filter(Boolean) as string[],
       maxItems: 80,
       sort: 'Latest',
       language: 'en',

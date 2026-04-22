@@ -13,12 +13,19 @@ export interface ApifyTweet {
   replyCount?: number;
 }
 
-// Prefer username~name (one path segment) or raw id. Override via APIFY_TWITTER_ACTOR_ID.
-const APIFY_TWITTER_ACTOR_ID = process.env.APIFY_TWITTER_ACTOR_ID ?? 'apidojo~tweet-scraper';
+// apify-client .actor() accepts actor id (e.g. 61RPP7dywgiy0JPD0) or username~name. Slug
+// "apidojo/tweet-scraper" is also valid. See https://docs.apify.com/api/v2#/reference/actors/actor-object
+// Default is the Store id for apidojo/tweet-scraper (Tweet Scraper / X).
+const APIFY_TWITTER_ACTOR_ID = process.env.APIFY_TWITTER_ACTOR_ID ?? '61RPP7dywgiy0JPD0';
 
 let loggedMissingApifyToken = false;
 
-/** Product/competitor names are not X handles; only pass valid bare handles to Apify. */
+/**
+ * Only pass real X handles. Company/product names (Notion, HubSpot) are NOT handles —
+ * the caller should use searchTerms for those; do not pass them in `handles`.
+ * Optional: only strings that look like explicit @handles (after strip) in lowercase
+ * 1–15 [a-z0-9_], no uppercase (avoids brand names like "Salesforce").
+ */
 function sanitizeHandleCandidates(candidates: string[] | undefined): string[] {
   if (!candidates?.length) return [];
   const out: string[] = [];
@@ -27,16 +34,21 @@ function sanitizeHandleCandidates(candidates: string[] | undefined): string[] {
     if (!t) continue;
     if (/[:\s/]/.test(t)) continue;
     const bare = t.replace(/^@/, '');
-    if (!/^[A-Za-z0-9_]{1,15}$/.test(bare)) continue;
+    if (!/^[a-z0-9_]{1,15}$/.test(bare)) continue;
     out.push(bare);
   }
   return [...new Set(out)].slice(0, 4);
 }
 
+/**
+ * Vercel Hobby: serverless wall clock is 60s. The chat route runs many tools in parallel;
+ * Apify's waitSecs is the max time we block on one actor. Default 40s so the overall
+ * request is less likely to be killed before we read the dataset. Raise on Pro or self-host.
+ */
 function getRunWaitSecs(): number {
-  const raw = parseInt(process.env.APIFY_MAX_WAIT_SECS ?? '95', 10);
-  if (!Number.isFinite(raw)) return 95;
-  return Math.max(15, Math.min(300, raw));
+  const raw = parseInt(process.env.APIFY_MAX_WAIT_SECS ?? '40', 10);
+  if (!Number.isFinite(raw)) return 40;
+  return Math.max(10, Math.min(300, raw));
 }
 
 function makeClient(): ApifyClient | null {
