@@ -766,6 +766,11 @@ export default function VeracityDashboard() {
 
             if (chunk.type === 'mirofish_live_result') {
               const liveOut: AgentOutput = chunk.output;
+              const liveFailed =
+                (Array.isArray(liveOut.interpretation) &&
+                  liveOut.interpretation.some(line => /mirofish live unavailable|live swarm unavailable|live swarm interviews failed/i.test(line))) ||
+                ((liveOut as any).swarmSize === 0) ||
+                (/unavailable|failed/i.test((liveOut as any).rationale ?? ''));
               setMessages(prev => prev.map(m => {
                 if (m.id !== assistantId || !m.orchestratorOutput) return m;
                 const updatedOutputs = [
@@ -777,7 +782,12 @@ export default function VeracityDashboard() {
                   orchestratorOutput: { ...m.orchestratorOutput, outputs: updatedOutputs },
                   agentRuns: [
                     ...(m.agentRuns ?? []).filter(r => r.agentId !== 'mirofish-live'),
-                    { agentId: 'mirofish-live', name: 'MiroFish Live (Real VPS)', status: 'completed', confidence: liveOut.confidence } as AgentRun,
+                    {
+                      agentId: 'mirofish-live',
+                      name: 'MiroFish Live (Real VPS)',
+                      status: liveFailed ? 'failed' : 'completed',
+                      confidence: liveOut.confidence,
+                    } as AgentRun,
                   ],
                 };
               }));
