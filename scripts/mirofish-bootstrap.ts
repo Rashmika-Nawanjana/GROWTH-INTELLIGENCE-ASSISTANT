@@ -209,8 +209,8 @@ async function waitForSimulationReady(simulationId: string, timeoutMs = 600_000)
     await sleep(5_000);
     try {
       const res = await fetch(`${BASE_URL}/api/simulation/${simulationId}/run-status`);
-      const json = await res.json() as { data?: { status?: string }; status?: string };
-      const status = json?.data?.status ?? json?.status ?? '';
+      const json = await res.json() as { data?: { status?: string; runner_status?: string }; status?: string };
+      const status = json?.data?.status ?? json?.data?.runner_status ?? json?.status ?? '';
       if (READY_STATES.includes(status)) {
         spin.stop(`Simulation ready for interviews (status: ${status})`);
         return;
