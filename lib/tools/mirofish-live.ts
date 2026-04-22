@@ -20,12 +20,40 @@ const LIVE_BASE_URL = (
   process.env.MIROFISH_LIVE_BASE_URL ?? 'http://168.144.36.78:5001'
 ).replace(/\/$/, '');
 
-let LIVE_SIMULATIONS_MAP: Record<string, string> = {};
-try {
-  LIVE_SIMULATIONS_MAP = JSON.parse(process.env.MIROFISH_LIVE_SIMULATIONS ?? '{}');
-} catch {
-  // malformed JSON — fall back to empty
+function parseLiveSimulations(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+  const trimmed = raw.trim();
+  if (!trimmed) return {};
+
+  const candidates = [trimmed];
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    candidates.push(trimmed.slice(1, -1));
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const out: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+          if (typeof v === 'string' && k.trim()) out[k.toLowerCase().trim()] = v;
+        }
+        return out;
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  return {};
 }
+
+const LIVE_SIMULATIONS_MAP: Record<string, string> = parseLiveSimulations(
+  process.env.MIROFISH_LIVE_SIMULATIONS
+);
+const LIVE_DEFAULT_SIM_ID = process.env.MIROFISH_LIVE_DEFAULT_SIMULATION_ID?.trim();
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -36,15 +64,24 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
  * Resolution order: exact → fuzzy substring → single-sim catch-all.
  */
 export function getLiveSimulationIdForProduct(product: string): string | undefined {
-  if (!product) return undefined;
   const keys = Object.keys(LIVE_SIMULATIONS_MAP);
-  if (keys.length === 0) return undefined;
-  const needle = product.toLowerCase().trim();
+  if (keys.length === 0) return LIVE_DEFAULT_SIM_ID;
+
+  const needle = product?.toLowerCase().trim();
+  if (!needle) {
+    if (LIVE_DEFAULT_SIM_ID) return LIVE_DEFAULT_SIM_ID;
+    return keys.length ? LIVE_SIMULATIONS_MAP[keys[0]] : undefined;
+  }
+
   if (LIVE_SIMULATIONS_MAP[needle]) return LIVE_SIMULATIONS_MAP[needle];
   const fuzzy = keys.find(k => needle.includes(k) || k.includes(needle));
   if (fuzzy) return LIVE_SIMULATIONS_MAP[fuzzy];
-  if (keys.length === 1) return LIVE_SIMULATIONS_MAP[keys[0]];
-  return undefined;
+
+  // If multiple aliases map to the same simulation, use it as a safe fallback.
+  const uniqueIds = Array.from(new Set(Object.values(LIVE_SIMULATIONS_MAP).filter(Boolean)));
+  if (uniqueIds.length === 1) return uniqueIds[0];
+  if (LIVE_DEFAULT_SIM_ID) return LIVE_DEFAULT_SIM_ID;
+  return keys.length ? LIVE_SIMULATIONS_MAP[keys[0]] : undefined;
 }
 
 /**
@@ -57,8 +94,8 @@ export async function isLiveSimulationReady(simulationId: string): Promise<boole
       { signal: AbortSignal.timeout(5_000) },
     );
     if (!res.ok) return false;
-    const json = await res.json() as { data?: { status?: string }; status?: string };
-    const status = json?.data?.status ?? json?.status ?? '';
+    const json = await res.json() as { data?: { status?: string; runner_status?: string }; status?: string };
+    const status = json?.data?.status ?? json?.data?.runner_status ?? json?.status ?? '';
     return ['completed', 'waiting_command', 'finished', 'running'].includes(status);
   } catch {
     return false;
