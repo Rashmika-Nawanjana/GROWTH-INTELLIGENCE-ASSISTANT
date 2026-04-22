@@ -88,6 +88,13 @@ type FollowUp = {
   loading?: boolean;
 };
 
+type PipelineStageState = 'pending' | 'running' | 'completed' | 'failed';
+type PipelineStage = {
+  id: string;
+  label: string;
+  state: PipelineStageState;
+};
+
 /* ─── Constants ─────────────────────────────────────────── */
 const DEMO_QUERIES = [
   'Is Lilian competitive in the AI SDR market right now?',
@@ -413,7 +420,6 @@ export default function VeracityDashboard() {
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const followUpEndRef  = useRef<HTMLDivElement>(null);
   const textareaRef     = useRef<HTMLTextAreaElement>(null);
-  const orchLogScrollRef = useRef<HTMLDivElement>(null);
 
   const autoResizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
@@ -437,12 +443,7 @@ export default function VeracityDashboard() {
   const totalCount     = currentResult?.agentRuns?.length ?? 0;
   const selectedAgentIds = ALL_DOMAINS.filter(d => selectedAgents[d]);
   const orchLogLen     = currentResult?.orchestrationLog?.length ?? 0;
-
-  useEffect(() => {
-    const el = orchLogScrollRef.current;
-    if (!el || orchLogLen === 0) return;
-    el.scrollTop = el.scrollHeight;
-  }, [orchLogLen, isLoading]);
+  const orchestrationLines = currentResult?.orchestrationLog ?? [];
 
   const refreshSessions = useCallback(async () => {
     setLoadingSessions(true);
@@ -925,6 +926,57 @@ export default function VeracityDashboard() {
   };
   const getRunForDomain = (d: Domain) => currentResult?.agentRuns?.find(r => r.agentId === d || r.name?.toLowerCase().includes(d.split('-')[0]));
   const getOutputForDomain = (d: Domain) => currentResult?.orchestratorOutput?.outputs?.find(o => o.domain === d);
+  const hasLine = (needle: string) => orchestrationLines.some(line => line.toLowerCase().includes(needle.toLowerCase()));
+  const researchRuns = (currentResult?.agentRuns ?? []).filter(r =>
+    ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent'].includes(r.agentId),
+  );
+  const researchRunning = researchRuns.some(r => r.status === 'running');
+  const researchTerminal = researchRuns.length > 0 && researchRuns.every(r => r.status === 'completed' || r.status === 'failed');
+  const researchFailed = researchRuns.length > 0 && researchRuns.every(r => r.status === 'failed');
+  const executionRun = (currentResult?.agentRuns ?? []).find(r => r.agentId === 'execution-engine');
+  const executionSeen = !!executionRun || hasLine('execution intent detected');
+  const executionEnabled = selectedAgents['execution-engine'];
+  const executionSkipped = !executionSeen && !isLoading;
+  const synthesisStarted = hasLine('synthesizing answer') || !!currentResult?.orchestratorOutput;
+  const runDone = !!currentResult?.orchestratorOutput && !isLoading;
+
+  const pipelineStages: PipelineStage[] = [
+    {
+      id: 'reasoning',
+      label: 'Reasoning',
+      state: runDone || hasLine('reasoning about your query') ? 'completed' : 'running',
+    },
+    {
+      id: 'planning',
+      label: 'Orchestrating',
+      state: runDone || hasLine('dividing work across') || hasLine('orchestrating parallel research') ? 'completed' : hasLine('starting orchestration') ? 'running' : 'pending',
+    },
+    {
+      id: 'research',
+      label: 'Research Swarm',
+      state: researchFailed ? 'failed' : researchTerminal || runDone ? 'completed' : researchRunning || hasLine('parallel research') ? 'running' : 'pending',
+    },
+    {
+      id: 'execution',
+      label: 'Execution Engine',
+      state: executionRun?.status === 'failed'
+        ? 'failed'
+        : executionRun?.status === 'completed'
+          ? 'completed'
+          : executionRun?.status === 'running'
+            ? 'running'
+            : executionSkipped || !executionEnabled
+              ? 'completed'
+              : executionSeen
+                ? 'running'
+                : 'pending',
+    },
+    {
+      id: 'synthesis',
+      label: 'Synthesis',
+      state: runDone ? 'completed' : synthesisStarted ? 'running' : 'pending',
+    },
+  ];
 
   const expandedOutput = expandedDomain ? getOutputForDomain(expandedDomain) : null;
   const visibleTabDomains = ALL_DOMAINS.filter(d => {
@@ -1356,27 +1408,72 @@ export default function VeracityDashboard() {
                   </div>
                 </div>
 
-                {isLoading && orchLogLen > 0 && currentResult?.orchestrationLog && (
-                  <div
-                    ref={orchLogScrollRef}
-                    className="mb-4 rounded-lg px-3 py-2.5 max-h-[132px] overflow-y-auto"
-                    style={{ background: cardBg2, border: `1px solid ${borderC}` }}
-                  >
-                    <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-mono uppercase tracking-widest" style={{ color: textSubtle }}>
+                {isLoading && orchLogLen > 0 && (
+                  <div className="mb-4 rounded-lg px-3 py-3" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+                    <div className="flex items-center gap-1.5 mb-2 text-[10px] font-mono uppercase tracking-widest" style={{ color: textSubtle }}>
                       <Activity size={11} className="shrink-0 animate-pulse" />
-                      <span>Orchestration</span>
+                      <span>Pipeline</span>
                     </div>
-                    <ul className="flex flex-col gap-1 font-mono text-[11px] leading-snug list-none p-0 m-0">
-                      {currentResult.orchestrationLog.map((line, i) => {
-                        const latest = i === currentResult.orchestrationLog!.length - 1;
-                        return (
-                          <li key={`${i}-${line.slice(0, 24)}`} className="flex gap-2 pl-0.5">
-                            <span className="shrink-0 opacity-40 select-none">›</span>
-                            <span style={{ color: latest ? textMain : textMuted }}>{line}</span>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                    <div className="overflow-x-auto pb-1">
+                      <div className="min-w-[620px] flex items-center gap-2.5">
+                        {pipelineStages.map((stage, i) => {
+                          const stateColor = stage.state === 'failed'
+                            ? '#ef4444'
+                            : stage.state === 'completed'
+                              ? '#10b981'
+                              : stage.state === 'running'
+                                ? '#0070f3'
+                                : textSubtle;
+                          const fill = stage.state === 'completed' ? '100%' : stage.state === 'running' ? '62%' : '0%';
+                          return (
+                            <React.Fragment key={stage.id}>
+                              <div className="flex flex-col items-center gap-1.5 min-w-[108px]">
+                                <div
+                                  className="relative w-8 h-8 rounded-full overflow-hidden"
+                                  style={{
+                                    border: `1.5px solid ${stage.state === 'pending' ? borderC : stateColor}`,
+                                    background: stage.state === 'pending' ? 'transparent' : `${stateColor}22`,
+                                    boxShadow: stage.state === 'running' ? `0 0 0 1px ${stateColor}33, 0 0 10px ${stateColor}44` : 'none',
+                                  }}
+                                >
+                                  <div
+                                    className={stage.state === 'running' ? 'animate-pulse' : ''}
+                                    style={{
+                                      position: 'absolute',
+                                      left: 0,
+                                      bottom: 0,
+                                      width: '100%',
+                                      height: fill,
+                                      background: `linear-gradient(180deg, ${stateColor}88 0%, ${stateColor}cc 100%)`,
+                                      transition: 'height 500ms ease',
+                                    }}
+                                  />
+                                  <span className="absolute inset-0 flex items-center justify-center text-[11px] font-mono font-bold" style={{ color: stage.state === 'pending' ? textSubtle : '#fff' }}>
+                                    {i + 1}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-mono uppercase tracking-wide text-center leading-tight" style={{ color: stage.state === 'pending' ? textSubtle : textMain }}>
+                                  {stage.label}
+                                </span>
+                              </div>
+                              {i < pipelineStages.length - 1 && (
+                                <div className="relative h-2.5 w-12 rounded-full overflow-hidden" style={{ border: `1px solid ${borderC}`, background: isDark ? '#151515' : '#f4f4f5' }}>
+                                  <div
+                                    className={stage.state === 'running' ? 'animate-pulse' : ''}
+                                    style={{
+                                      height: '100%',
+                                      width: stage.state === 'pending' ? '0%' : stage.state === 'running' ? '55%' : '100%',
+                                      background: `linear-gradient(90deg, ${stateColor}99 0%, ${stateColor}dd 100%)`,
+                                      transition: 'width 450ms ease',
+                                    }}
+                                  />
+                                </div>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 )}
 
