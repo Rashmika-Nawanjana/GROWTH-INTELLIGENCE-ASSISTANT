@@ -3,7 +3,7 @@ export interface AgentSource {
   url: string;
   title: string;
   timestamp: string;
-  tool: 'serpapi' | 'firecrawl' | 'reddit' | 'hn' | 'synthesis' | 'mirofish';
+  tool: 'serpapi' | 'firecrawl' | 'reddit' | 'hn' | 'synthesis' | 'mirofish' | 'mirofish-live';
 }
 
 // ─── Confidence ───────────────────────────────────────────────────────────────
@@ -50,7 +50,8 @@ export type IntelligenceDomain =
   | 'positioning'
   | 'adjacent'
   | 'execution-engine'
-  | 'mirofish';
+  | 'mirofish'
+  | 'mirofish-live';
 
 // ─── Artifact types (drives which component renders) ─────────────────────────
 export type ArtifactType =

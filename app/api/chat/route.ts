@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { orchestrate, runMirofishAgent } from '../../../lib/agents/orchestrator';
+import { orchestrate, runMirofishAgent, runMirofishLiveAgent } from '../../../lib/agents/orchestrator';
 import { createClient } from '@/lib/supabase-server';
 import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment, AgentOutput } from '../../../lib/agents/types';
 
@@ -23,6 +23,7 @@ type StreamChunk =
   | { type: 'orchestration_log'; line: string }
   | { type: 'result'; output: OrchestratorOutput }
   | { type: 'mirofish_result'; output: AgentOutput }
+  | { type: 'mirofish_live_result'; output: AgentOutput }
   | { type: 'error'; message: string };
 
 // Mirror of orchestrator cost model — kept cheap and only used for the
@@ -58,6 +59,7 @@ export async function POST(req: NextRequest) {
     images?: ImageAttachment[];
     memoryContext?: string;
     includeMirofish?: boolean;
+    includeMirofishLive?: boolean;
     followUpMode?: 'full' | 'targeted';
     selectedAgents?: string[];
   };
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const { query, history = [], images = [], memoryContext, includeMirofish = false, followUpMode = 'full', selectedAgents = [] } = body;
+  const { query, history = [], images = [], memoryContext, includeMirofish = false, includeMirofishLive = false, followUpMode = 'full', selectedAgents = [] } = body;
 
   if (!query?.trim()) {
     return jsonError('query is required', 400);
@@ -142,7 +144,7 @@ export async function POST(req: NextRequest) {
       // Send main result — frontend renders immediately, no need to wait for MiroFish
       write({ type: 'result', output: result });
 
-      // ── MiroFish (opt-in): runs AFTER main result has been streamed ────────
+      // ── MiroFish Synthetic (opt-in): runs AFTER main result ────────────────
       if (includeMirofish) {
         try {
           const mirofishOutput = await runMirofishAgent(
@@ -160,7 +162,29 @@ export async function POST(req: NextRequest) {
             write({ type: 'mirofish_result', output: mirofishOutput });
           }
         } catch {
-          // MiroFish failure is non-fatal — main result already delivered
+          // non-fatal
+        }
+      }
+
+      // ── MiroFish Live VPS (opt-in): runs AFTER main result ─────────────────
+      if (includeMirofishLive) {
+        try {
+          const mirofishLiveOutput = await runMirofishLiveAgent(
+            query,
+            history,
+            (agentRun: AgentRun) => {
+              liveAgentState.set(agentRun.agentId, agentRun.status);
+              write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
+            },
+            images,
+            memoryContext,
+            (line: string) => write({ type: 'orchestration_log', line }),
+          );
+          if (mirofishLiveOutput) {
+            write({ type: 'mirofish_live_result', output: mirofishLiveOutput });
+          }
+        } catch {
+          // non-fatal
         }
       }
     } catch (err) {

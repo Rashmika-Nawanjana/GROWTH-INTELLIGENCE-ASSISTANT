@@ -119,11 +119,22 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
     const { year, nextYear } = currentYears();
     const category = normalizeCategory(ctx);
     return {
-    broad: `${ctx.product} forecast prediction market sizing TAM revenue projection`,
-    targeted: `site:crunchbase.com OR site:techcrunch.com "${category}" market size growth projection`,
-    hypothesis: `${ctx.product} category market expansion forecast ${year} ${nextYear} opportunity`,
-    keywords: ['forecast', 'TAM', 'market size', 'projection', 'growth', 'opportunity'],
-  };
+      broad: `${ctx.product} forecast prediction market sizing TAM revenue projection`,
+      targeted: `site:crunchbase.com OR site:techcrunch.com "${category}" market size growth projection`,
+      hypothesis: `${ctx.product} category market expansion forecast ${year} ${nextYear} opportunity`,
+      keywords: ['forecast', 'TAM', 'market size', 'projection', 'growth', 'opportunity'],
+    };
+  },
+
+  'mirofish-live': (ctx) => {
+    const { year, nextYear } = currentYears();
+    const category = normalizeCategory(ctx);
+    return {
+      broad: `${ctx.product} forecast prediction market sizing TAM revenue projection`,
+      targeted: `site:crunchbase.com OR site:techcrunch.com "${category}" market size growth projection`,
+      hypothesis: `${ctx.product} category market expansion forecast ${year} ${nextYear} opportunity`,
+      keywords: ['forecast', 'TAM', 'market size', 'projection', 'growth', 'opportunity'],
+    };
   },
 };
 

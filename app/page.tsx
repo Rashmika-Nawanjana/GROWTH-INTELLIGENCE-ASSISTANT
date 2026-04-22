@@ -102,7 +102,7 @@ const DEMO_QUERIES = [
   'What should Vector Agents build to capture emerging demand?',
 ];
 
-const ALL_DOMAINS = ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent', 'execution-engine', 'mirofish'] as const;
+const ALL_DOMAINS = ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent', 'execution-engine', 'mirofish', 'mirofish-live'] as const;
 type Domain = typeof ALL_DOMAINS[number];
 
 const DOMAIN_META: Record<Domain, {
@@ -152,6 +152,11 @@ const DOMAIN_META: Record<Domain, {
     label: 'MiroFish (Forecast)',        short: 'MiroFish',
     icon: <Fish size={14} />,
     color: '#06b6d4', bg: 'rgba(6,182,212,0.08)', bgLight: 'rgba(6,182,212,0.06)', border: 'rgba(6,182,212,0.3)',
+  },
+  'mirofish-live': {
+    label: 'MiroFish Live (Real VPS)',   short: 'MiroFish Live',
+    icon: <Fish size={14} />,
+    color: '#10b981', bg: 'rgba(16,185,129,0.08)', bgLight: 'rgba(16,185,129,0.06)', border: 'rgba(16,185,129,0.3)',
   },
 };
 
@@ -257,6 +262,12 @@ function SidebarAgentRow({
         letterSpacing: '-0.01em',
       }}>
         {meta.short}
+        {domain === 'mirofish-live' && status === 'idle' && (
+          <span className="ml-1.5 text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded"
+            style={{ color: '#10b981', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.2)', verticalAlign: 'middle' }}>
+            VPS
+          </span>
+        )}
       </span>
       {status === 'running' && (
         <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded"
@@ -413,7 +424,7 @@ export default function VeracityDashboard() {
   const [userMemory, setUserMemory] = useState<UserMemory | null>(null);
   const [mirofishRunning, setMirofishRunning] = useState(false);
   const [selectedAgents, setSelectedAgents] = useState<Record<Domain, boolean>>(() =>
-    Object.fromEntries(ALL_DOMAINS.map(d => [d, true])) as Record<Domain, boolean>
+    Object.fromEntries(ALL_DOMAINS.map(d => [d, d !== 'mirofish-live'])) as Record<Domain, boolean>
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -641,6 +652,7 @@ export default function VeracityDashboard() {
           images: imagePayloads,
           memoryContext,
           includeMirofish: selectedAgents.mirofish,
+          includeMirofishLive: selectedAgents['mirofish-live'],
           selectedAgents: selectedAgentIds,
         }),
       });
@@ -700,6 +712,18 @@ export default function VeracityDashboard() {
                   }
                 ));
               }
+              // If mirofish-live was requested, mark it as running too
+              if (selectedAgents['mirofish-live']) {
+                setMessages(prev => prev.map(m =>
+                  m.id !== assistantId ? m : {
+                    ...m,
+                    agentRuns: [
+                      ...(m.agentRuns ?? []).filter(r => r.agentId !== 'mirofish-live'),
+                      { agentId: 'mirofish-live', name: 'MiroFish Live (Real VPS)', status: 'running', startedAt: new Date().toISOString() } as AgentRun,
+                    ],
+                  }
+                ));
+              }
               setMessages(prev => prev.map(m =>
                 m.id === assistantId ? {
                   ...m,
@@ -735,6 +759,25 @@ export default function VeracityDashboard() {
                   agentRuns: [
                     ...(m.agentRuns ?? []).filter(r => r.agentId !== 'mirofish'),
                     { agentId: 'mirofish', name: 'MiroFish (Forecast)', status: 'completed', confidence: mirofishOut.confidence } as AgentRun,
+                  ],
+                };
+              }));
+            }
+
+            if (chunk.type === 'mirofish_live_result') {
+              const liveOut: AgentOutput = chunk.output;
+              setMessages(prev => prev.map(m => {
+                if (m.id !== assistantId || !m.orchestratorOutput) return m;
+                const updatedOutputs = [
+                  ...(m.orchestratorOutput.outputs ?? []).filter(o => o.domain !== 'mirofish-live'),
+                  liveOut,
+                ];
+                return {
+                  ...m,
+                  orchestratorOutput: { ...m.orchestratorOutput, outputs: updatedOutputs },
+                  agentRuns: [
+                    ...(m.agentRuns ?? []).filter(r => r.agentId !== 'mirofish-live'),
+                    { agentId: 'mirofish-live', name: 'MiroFish Live (Real VPS)', status: 'completed', confidence: liveOut.confidence } as AgentRun,
                   ],
                 };
               }));
@@ -1094,7 +1137,7 @@ export default function VeracityDashboard() {
                     onClick={() => {
                       const newState = allSelected
                         ? Object.fromEntries(ALL_DOMAINS.map(d => [d, false])) as Record<Domain, boolean>
-                        : Object.fromEntries(ALL_DOMAINS.map(d => [d, true])) as Record<Domain, boolean>;
+                        : Object.fromEntries(ALL_DOMAINS.map(d => [d, d !== 'mirofish-live'])) as Record<Domain, boolean>;
                       setSelectedAgents(newState);
                     }}
                     className={`select-all-btn font-mono flex items-center gap-1 ${allSelected ? 'all-selected' : ''}`}
@@ -1221,6 +1264,12 @@ export default function VeracityDashboard() {
                 <span className="shrink-0 hidden lg:flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded"
                   style={{ color: '#06b6d4', background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)' }}>
                   {mirofishRunning ? <RefreshCw size={10} className="animate-spin" /> : <Fish size={10} />} forecast
+                </span>
+              )}
+              {selectedAgents['mirofish-live'] && (
+                <span className="shrink-0 hidden lg:flex items-center gap-1 text-[10px] font-mono px-2 py-1 rounded"
+                  style={{ color: '#10b981', background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)' }}>
+                  <Fish size={10} /> live VPS
                 </span>
               )}
               <button

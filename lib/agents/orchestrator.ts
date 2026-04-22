@@ -6,6 +6,7 @@ import { positioningAgent } from './positioning';
 import { adjacentAgent } from './adjacent';
 import { executionEngineAgent } from './execution/execution-engine';
 import { mirofishAgent } from './mirofish';
+import { mirofishLiveAgent } from './mirofish-live';
 import { detectExecutionIntent } from './execution-intent';
 import { generateHuggingFaceText } from './gemini';
 import { filterAndRankSources } from '@/lib/tools/source-validator';
@@ -622,6 +623,60 @@ export async function runMirofishAgent(
     return output;
   } catch (err) {
     onAgentUpdate?.({ ...run, status: 'failed', completedAt: new Date().toISOString(), error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
+}
+
+// ── MiroFish Live agent — real VPS only, no synthetic fallback ────────────────
+// Dispatched only when the user has toggled "MiroFish Live" in the UI.
+export async function runMirofishLiveAgent(
+  query: string,
+  history: ConversationMessage[],
+  onAgentUpdate?: (run: AgentRun) => void,
+  images: ImageAttachment[] = [],
+  memoryContext?: string,
+  onOrchestrationLog?: (message: string) => void,
+): Promise<AgentOutput | null> {
+  onOrchestrationLog?.('MiroFish Live: connecting to real VPS (168.144.36.78)…');
+  const classification = await classifyQuery(query, history, images, memoryContext);
+  const { product, competitor, productUrl, competitorUrl, intent } = classification;
+
+  const priorContext = history
+    .slice(-4)
+    .map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.content.slice(0, 400)}`)
+    .join('\n');
+
+  const agentContext: AgentContext = {
+    query: intent,
+    product,
+    competitor,
+    productUrl,
+    competitorUrl,
+    priorContext: priorContext || undefined,
+    images: images.length > 0 ? images : undefined,
+    memoryContext: memoryContext || undefined,
+  };
+
+  const liveRun: AgentRun = {
+    agentId: mirofishLiveAgent.id,
+    name: mirofishLiveAgent.name,
+    status: 'running',
+    startedAt: new Date().toISOString(),
+  };
+  onAgentUpdate?.(liveRun);
+
+  try {
+    onOrchestrationLog?.('MiroFish Live: interviewing live swarm…');
+    const output = await mirofishLiveAgent.run(agentContext);
+    onAgentUpdate?.({ ...liveRun, status: 'completed', completedAt: new Date().toISOString() });
+    return output;
+  } catch (err) {
+    onAgentUpdate?.({
+      ...liveRun,
+      status: 'failed',
+      completedAt: new Date().toISOString(),
+      error: err instanceof Error ? err.message : String(err),
+    });
     return null;
   }
 }
