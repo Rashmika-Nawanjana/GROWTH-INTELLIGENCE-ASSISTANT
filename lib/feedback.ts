@@ -92,33 +92,54 @@ export function recordVariantResult(params: {
 }
 
 // Refine a prior execution plan using session feedback.
-// Returns the new ExecutionPlanOutput or null on failure.
+export type RefineExecutionPlanResult =
+  | {
+      ok: true;
+      executionPlan: ExecutionPlanOutput;
+      orchestratorOutput?: OrchestratorOutput;
+      feedbackApplied: FeedbackAppliedCounts;
+      changes?: RefinementDelta[];
+    }
+  | { ok: false; error: string; status?: number };
+
+// Returns success payload or a structured error (HTTP body is always read).
 export async function refineExecutionPlan(params: {
   sessionId: string;
   messageId: string;
   focus?: string;
-}): Promise<{
-  executionPlan: ExecutionPlanOutput;
-  orchestratorOutput?: OrchestratorOutput;
-  feedbackApplied: FeedbackAppliedCounts;
-  changes?: RefinementDelta[];
-} | null> {
+}): Promise<RefineExecutionPlanResult> {
   try {
     const res = await fetch('/api/refine', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
+      credentials: 'include',
     });
-    if (!res.ok) return null;
-    const json = await res.json();
-    if (!json?.ok) return null;
-    return {
-      executionPlan: json.executionPlan as ExecutionPlanOutput,
-      orchestratorOutput: json.orchestratorOutput as OrchestratorOutput | undefined,
-      feedbackApplied: json.feedbackApplied as FeedbackAppliedCounts,
-      changes: json.changes as RefinementDelta[] | undefined,
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      executionPlan?: ExecutionPlanOutput;
+      orchestratorOutput?: OrchestratorOutput;
+      feedbackApplied?: FeedbackAppliedCounts;
+      changes?: RefinementDelta[];
     };
-  } catch {
-    return null;
+    if (json?.ok === true && json.executionPlan) {
+      return {
+        ok: true,
+        executionPlan: json.executionPlan,
+        orchestratorOutput: json.orchestratorOutput,
+        feedbackApplied: (json.feedbackApplied ?? { recommendationFeedback: 0, recommendationActions: 0, variantResults: 0 }) as FeedbackAppliedCounts,
+        changes: json.changes,
+      };
+    }
+    const msg =
+      (typeof json.error === 'string' && json.error) ||
+      (res.status === 401 ? 'Not signed in — sign in to refine.' : null) ||
+      (res.status === 404 ? 'Saved message not found — run a new query, then try Refine after it saves.' : null) ||
+      (res.status === 400 ? 'Cannot refine: missing saved research/execution data for this message.' : null) ||
+      `Refine failed (${res.status})`;
+    return { ok: false, error: msg, status: res.status };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'Network error' };
   }
 }

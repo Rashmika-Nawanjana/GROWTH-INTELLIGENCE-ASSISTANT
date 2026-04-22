@@ -54,17 +54,17 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ ok: false, error: 'invalid JSON' }, { status: 400 });
+    return NextResponse.json({ ok: false, error: 'Invalid request body' }, { status: 400 });
   }
 
   if (!body.sessionId || !body.messageId) {
-    return NextResponse.json({ ok: false, error: 'sessionId and messageId required' }, { status: 400 });
+    return NextResponse.json({ ok: false, error: 'sessionId and messageId are required' }, { status: 400 });
   }
 
   const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
-    return NextResponse.json({ ok: false, error: 'unauthenticated' }, { status: 401 });
+    return NextResponse.json({ ok: false, error: 'Not signed in' }, { status: 401 });
   }
 
   // 1. Pull the prior assistant message so we have the research outputs
@@ -76,14 +76,23 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (msgErr || !msgRow) {
-    return NextResponse.json({ ok: false, error: 'prior message not found' }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: 'Saved message not found for this session (it may not have been persisted yet). Wait for the run to save, or send a new query.' },
+      { status: 404 },
+    );
   }
 
   const metadata = (msgRow.metadata as Record<string, unknown>) ?? {};
   const orchestratorOutput = metadata.orchestratorOutput as StoredOrchestratorOutput | undefined;
 
   if (!orchestratorOutput?.outputs?.length) {
-    return NextResponse.json({ ok: false, error: 'prior message has no research outputs to refine' }, { status: 400 });
+    return NextResponse.json(
+      {
+        ok: false,
+        error: 'This message has no saved research outputs. Run a full intelligence query first, then use Refine.',
+      },
+      { status: 400 },
+    );
   }
 
   // 2. Pull all session feedback in parallel
@@ -138,7 +147,10 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'refine orchestration error';
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    return NextResponse.json(
+      { ok: false, error: `Re-orchestration failed: ${msg}` },
+      { status: 500 },
+    );
   }
 
   const deltas = buildRefinementDeltas(orchestratorOutput.outputs ?? [], refinedOutput.outputs ?? []);
@@ -162,7 +174,12 @@ export async function POST(req: NextRequest) {
 
   const newPlan = enrichedOutput.outputs.find(o => o.artifactType === 'execution-plan') as ExecutionPlanOutput | undefined;
   if (!newPlan) {
-    return NextResponse.json({ ok: false, error: 'refined run did not produce an execution plan' }, { status: 500 });
+    const execRun = refinedOutput.agentRuns.find(r => r.agentId === 'execution-engine');
+    const why =
+      execRun?.status === 'failed' && execRun.error
+        ? `Execution step failed: ${execRun.error}`
+        : 'The refined run completed without an execution-plan artifact (execution may have been skipped or errored).';
+    return NextResponse.json({ ok: false, error: why }, { status: 500 });
   }
 
   return NextResponse.json({
