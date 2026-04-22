@@ -13,7 +13,8 @@ export interface ApifyTweet {
   replyCount?: number;
 }
 
-const APIFY_TWITTER_ACTOR_ID = process.env.APIFY_TWITTER_ACTOR_ID ?? '61RPP7dywgiy0JPD0';
+// Prefer username~name (one path segment) or raw id. Override via APIFY_TWITTER_ACTOR_ID.
+const APIFY_TWITTER_ACTOR_ID = process.env.APIFY_TWITTER_ACTOR_ID ?? 'apidojo~tweet-scraper';
 
 let loggedMissingApifyToken = false;
 
@@ -89,8 +90,16 @@ export async function scrapeTwitterX(
     tweetLanguage: options.language ?? 'en',
   };
 
+  const debugApify = process.env.APIFY_DEBUG === '1' || process.env.NODE_ENV === 'development';
+  if (debugApify) {
+    console.log('[apify] starting run', { actor: APIFY_TWITTER_ACTOR_ID, searchTerms, twitterHandles, maxItems, waitSecs });
+  }
+
   try {
     const run = await client.actor(APIFY_TWITTER_ACTOR_ID).call(input, { waitSecs });
+    if (debugApify) {
+      console.log('[apify] run finished', { id: run?.id, status: run?.status, defaultDatasetId: run?.defaultDatasetId });
+    }
 
     if (!run?.id) {
       throw new Error('Apify run returned no run id');
@@ -101,6 +110,9 @@ export async function scrapeTwitterX(
     }
 
     const { items } = await client.dataset(run.defaultDatasetId).listItems({ limit: 120 });
+    if (debugApify) {
+      console.log('[apify] dataset items count:', items?.length ?? 0);
+    }
     const tweets: ApifyTweet[] = (items ?? [])
       .map((it: any) => {
         const text = (
@@ -129,13 +141,14 @@ export async function scrapeTwitterX(
       .slice(0, 40);
 
     const runLabel = `run ${run.id}`;
+    const actorPath = encodeURIComponent(APIFY_TWITTER_ACTOR_ID);
     return buildToolResult<ApifyTweet[]>({
       data: tweets,
       status: tweets.length > 0 ? 'ok' : 'failed',
       source: tweets.length > 0
         ? `Apify Twitter/X Scraper (${runLabel}, ${tweets.length} items)`
         : `Apify Twitter/X Scraper (${runLabel}, 0 items — check run log in Apify console)`,
-      sourceUrl: `https://console.apify.com/actors/${APIFY_TWITTER_ACTOR_ID}/runs/${run.id}`,
+      sourceUrl: `https://console.apify.com/actors/${actorPath}/runs/${run.id}`,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -144,7 +157,7 @@ export async function scrapeTwitterX(
       data: [],
       status: 'failed',
       source: `Apify Twitter/X error: ${message.slice(0, 200)}`,
-      sourceUrl: `https://console.apify.com/actors/${APIFY_TWITTER_ACTOR_ID}`,
+      sourceUrl: `https://console.apify.com/actors/${encodeURIComponent(APIFY_TWITTER_ACTOR_ID)}`,
     });
   }
 }
