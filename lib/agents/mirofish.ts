@@ -48,7 +48,7 @@ function makeEmptyForecast(query: string, reason: string): ForecastOutput {
   };
 }
 
-/** Turn the user's query into a single falsifiable forecast question. */
+/** Turn the user's query into a swarm poll question that stays faithful to the original intent. */
 async function formulateForecastQuestion(
   query: string,
   product: string,
@@ -61,14 +61,17 @@ Product: ${product}${competitor ? `\nCompetitor: ${competitor}` : ''}
 ${priorContext ? `Prior context:\n${priorContext}\n` : ''}
 User query: "${query}"
 
-Convert the query into ONE single, falsifiable forecast question suitable for polling a simulated swarm of market personas.
-Requirements:
-- Binary or probabilistic form (e.g. "Will X happen by [time horizon]?" or "How likely is X to Y by [horizon]?")
-- Include a concrete time horizon (default "6 months" if not specified)
-- Specific and measurable — avoid vague language
-- Focused on market/business outcome relevant to ${product}
+Rephrase the user's query into ONE question suitable for polling a simulated swarm of market personas.
+Critical rules:
+- PRESERVE the original intent exactly — do NOT change the topic or introduce new subjects the user did not mention
+- If the user asked about threats, competitors, or market landscape, ask the swarm about threats/competitors/landscape
+- If the user asked about a specific company, region, or product, keep that exact focus
+- Only use "Will X happen by [horizon]?" form if the user explicitly asked about a future event
+- For descriptive questions (threats, competitors, positioning, strategy), use open-ended form: "From your perspective, what are the main [topic] for [subject]?"
+- Include geographic or domain context from the original query (e.g. "in Sri Lanka", "in 2026")
+- Keep it specific and measurable
 
-Reply with ONLY the forecast question string, no JSON, no preamble.`;
+Reply with ONLY the rephrased question string, no JSON, no preamble.`;
 
   const result = await generateHuggingFaceText(prompt, { maxNewTokens: 160, temperature: 0.2 });
   return result.trim() || query;
@@ -98,10 +101,10 @@ async function synthesiseForecast(params: {
 }> {
   const responsesSample = params.swarmResponses.slice(0, 30).join('\n---\n');
 
-  const prompt = `You are a prediction-market analyst synthesising a swarm of simulated AI personas.
+  const prompt = `You are a market-intelligence analyst synthesising a swarm of simulated market personas.
 
-Forecast question: "${params.forecastQuestion}"
-Product: ${params.product}
+Swarm question: "${params.forecastQuestion}"
+Product/Subject: ${params.product}
 Swarm size: ${params.swarmSize} personas responded
 ${params.priorContext ? `Prior research context:\n${params.priorContext}\n` : ''}
 Trend baseline: ${params.trendSummary || 'unavailable'}
@@ -109,28 +112,31 @@ Trend baseline: ${params.trendSummary || 'unavailable'}
 Swarm responses (sample):
 ${responsesSample}
 
-Synthesise these into a structured forecast. Reply with ONLY valid JSON matching this exact shape:
+Synthesise these into a structured swarm consensus. Stay true to what was asked — do NOT reframe the question.
+For questions about threats, competitors, or landscape, "pointEstimate" represents the overall severity/concern level (0=no threat, 1=critical threat).
+For questions about future events, "pointEstimate" represents probability.
+
+Reply with ONLY valid JSON matching this exact shape:
 {
-  "pointEstimate": 0.0-1.0,           // probability estimate (0 = impossible, 1 = certain)
-  "unit": "probability",              // always "probability" for binary/percentage forecasts
+  "pointEstimate": 0.0-1.0,           // severity/concern level or probability, depending on question type
+  "unit": "probability",
   "confidenceLow": 0.0-1.0,          // lower bound of 90% confidence interval
   "confidenceHigh": 0.0-1.0,         // upper bound
-  "direction": "up"|"down"|"flat",   // overall direction of the predicted outcome
-  "timeHorizon": "string",            // e.g. "6 months", "Q3 2026"
-  "distribution": [                   // 4-6 sentiment buckets (label + count of swarm members)
-    { "label": "strongly positive", "count": 0 },
-    { "label": "positive", "count": 0 },
+  "direction": "up"|"down"|"flat",   // trend direction (up = increasing threat/likelihood)
+  "timeHorizon": "string",            // e.g. "2026", "next 12 months" — use context from the question
+  "distribution": [                   // 4-6 buckets reflecting swarm sentiment on THIS specific question
+    { "label": "high threat", "count": 0 },
+    { "label": "moderate threat", "count": 0 },
     { "label": "neutral", "count": 0 },
-    { "label": "negative", "count": 0 },
-    { "label": "strongly negative", "count": 0 }
+    { "label": "low threat", "count": 0 }
   ],
-  "contributingSignals": [            // top 3 distinct persona perspectives that most influenced the forecast
-    { "persona": "string", "weight": -1.0 to 1.0, "excerpt": "short quote" }
+  "contributingSignals": [            // top 3 persona perspectives that most influenced the synthesis
+    { "persona": "string", "weight": -1.0 to 1.0, "excerpt": "short quote directly addressing the question" }
   ],
-  "confidenceScore": 0.0-1.0,        // overall confidence in this forecast
-  "facts": ["string"],                // 2-4 verifiable swarm findings (e.g. "X% of simulated personas predict Y")
-  "interpretation": ["string"],       // 2-3 analyst insights beyond the raw data
-  "rationale": "string"               // 2-3 sentence plain-English summary of the forecast
+  "confidenceScore": 0.0-1.0,        // overall confidence in this synthesis
+  "facts": ["string"],                // 2-4 specific findings from the swarm directly answering the question
+  "interpretation": ["string"],       // 2-3 analyst insights that directly address what was asked
+  "rationale": "string"               // 2-3 sentence summary that directly answers the original question
 }`;
 
   try {
@@ -185,16 +191,16 @@ async function runSyntheticSwarm(
 ): Promise<{ responses: string[]; totalCount: number }> {
   const personaList = SYNTHETIC_PERSONAS.map((p, i) => `${i + 1}. ${p}`).join('\n');
 
-  const prompt = `You are simulating a panel of ${SYNTHETIC_PERSONAS.length} independent market personas answering a forecast question about ${product}.
+  const prompt = `You are simulating a panel of ${SYNTHETIC_PERSONAS.length} independent market personas answering a question about ${product}.
 
 Panel members:
 ${personaList}
 
-Forecast question: "${forecastQuestion}"
+Question: "${forecastQuestion}"
 
 For EACH persona, write a 1-2 sentence response in their voice that:
-- Gives their probability estimate (e.g. "I'd put this at ~65% likely")
-- Gives their main reason (their background shapes this)
+- Directly answers the question as asked (do NOT reframe or change the topic)
+- Gives their specific view based on their background
 - Is grounded in realistic market signals for 2025/2026
 
 Reply with ONLY a JSON object with a "responses" field containing an array of ${SYNTHETIC_PERSONAS.length} strings (one per persona, in order):
