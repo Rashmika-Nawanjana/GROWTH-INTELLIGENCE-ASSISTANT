@@ -3,7 +3,7 @@ export interface AgentSource {
   url: string;
   title: string;
   timestamp: string;
-  tool: 'serpapi' | 'firecrawl' | 'reddit' | 'hn' | 'synthesis' | 'mirofish' | 'mirofish-live';
+  tool: 'serpapi' | 'firecrawl' | 'reddit' | 'hn' | 'apify' | 'synthesis' | 'mirofish' | 'mirofish-live';
 }
 
 // ─── Confidence ───────────────────────────────────────────────────────────────

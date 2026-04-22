@@ -61,6 +61,25 @@ function getLiveMaxAgents(): number {
   return Math.max(1, Math.min(6, raw));
 }
 
+function hasNonAscii(text: string | undefined): boolean {
+  if (!text) return false;
+  return /[^\x00-\x7F]/.test(text);
+}
+
+async function translateToEnglishIfNeeded(text: string | undefined): Promise<string | undefined> {
+  if (!text) return text;
+  if (!hasNonAscii(text)) return text;
+  try {
+    const translated = await generateHuggingFaceText(
+      `Translate to fluent English. Keep meaning and be concise.\n\nText:\n${text}\n\nEnglish:`,
+      { maxNewTokens: 120, temperature: 0.1 },
+    );
+    return translated.trim() || text;
+  } catch {
+    return text;
+  }
+}
+
 async function formulateForecastQuestion(
   query: string,
   product: string,
@@ -171,7 +190,10 @@ Reply with ONLY valid JSON:
   "facts": ["string"],
   "interpretation": ["string"],
   "rationale": "string"
-}`;
+}
+
+All output must be in English.
+If source snippets are non-English, translate them into English before writing facts, interpretation, or contributingSignals excerpts.`;
 
   try {
     return await generateHuggingFaceJson<any>(
@@ -283,14 +305,25 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     priorContext,
   });
 
+  const [factsEn, interpretationEn, rationaleEn, signalsEn] = await Promise.all([
+    Promise.all((synthesised.facts ?? []).map(f => translateToEnglishIfNeeded(f))).then(arr => arr.filter(Boolean) as string[]),
+    Promise.all((synthesised.interpretation ?? []).map(i => translateToEnglishIfNeeded(i))).then(arr => arr.filter(Boolean) as string[]),
+    translateToEnglishIfNeeded(synthesised.rationale).then(v => v ?? synthesised.rationale),
+    Promise.all((synthesised.contributingSignals ?? []).map(async s => ({
+      ...s,
+      persona: (await translateToEnglishIfNeeded(s.persona)) ?? s.persona,
+      excerpt: await translateToEnglishIfNeeded(s.excerpt),
+    }))),
+  ]);
+
   return {
     agentId: 'mirofish-live',
     domain: 'mirofish-live',
     artifactType: 'forecast-chart',
     confidence: scoreToLevel(synthesised.confidenceScore),
     confidenceScore: synthesised.confidenceScore,
-    facts: synthesised.facts,
-    interpretation: synthesised.interpretation,
+    facts: factsEn,
+    interpretation: interpretationEn,
     sources,
     generatedAt: new Date().toISOString(),
     question: forecastQuestion,
@@ -302,8 +335,8 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     swarmSize: swarmBundle.totalCount,
     timeHorizon: synthesised.timeHorizon,
     distribution: synthesised.distribution ?? [],
-    contributingSignals: synthesised.contributingSignals ?? [],
-    rationale: synthesised.rationale,
+    contributingSignals: signalsEn ?? [],
+    rationale: rationaleEn ?? synthesised.rationale,
   } as ForecastOutput;
 }
 

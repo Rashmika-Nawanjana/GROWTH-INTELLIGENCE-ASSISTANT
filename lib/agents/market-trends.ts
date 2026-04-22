@@ -1,6 +1,7 @@
 import { searchWeb, searchNews, searchTrends } from '../tools/serpapi';
 import { searchHN, getTechSentiment } from '../tools/hn-algolia';
 import { searchReddit } from '../tools/reddit';
+import { scrapeTwitterX } from '../tools/apify-twitter';
 import { planQueries } from '../tools/query-planner';
 import { generateHuggingFaceJson } from './gemini';
 import type {
@@ -39,7 +40,7 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   const trendKeywords = [product, competitor].filter(Boolean) as string[];
 
   // Use query bundle: broad + targeted + hypothesis queries in parallel
-  const [webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult, socialPulseResult] = await Promise.allSettled([
+  const [webResult, newsResult, trendsResult, hnResult, redditResult, webTargetedResult, webHypothesisResult, socialPulseResult, apifyTwitterResult] = await Promise.allSettled([
     searchWeb(queryBundle.broad),
     searchNews(`${product}${competitor ? ` ${competitor}` : ''} market growth revenue funding`),
     searchTrends(trendKeywords),
@@ -48,6 +49,12 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     searchWeb(queryBundle.targeted),
     searchWeb(queryBundle.hypothesis),
     searchWeb(`${product}${competitor ? ` ${competitor}` : ''} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com trend launch feedback`),
+    scrapeTwitterX([queryBundle.targeted, queryBundle.hypothesis], {
+      handles: [product, competitor].filter(Boolean) as string[],
+      maxItems: 80,
+      sort: 'Latest',
+      language: 'en',
+    }),
   ]);
 
   // ── Collect sources ────────────────────────────────────────────────────────
@@ -101,6 +108,20 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     redditResult.value.data.slice(0, 3).forEach(p => {
       sources.push({ url: p.url, title: p.title, timestamp: p.created, tool: 'reddit' });
       rawContent.push(`[REDDIT] ${p.title}: ${p.snippet}`);
+    });
+  }
+  if (apifyTwitterResult.status === 'fulfilled') {
+    apifyTwitterResult.value.data.slice(0, 8).forEach(t => {
+      sources.push({
+        url: t.url,
+        title: `X @${t.authorHandle ?? 'unknown'}`,
+        timestamp: t.createdAt ?? apifyTwitterResult.value.timestamp,
+        tool: 'apify',
+      });
+      rawContent.push(
+        `[APIFY X] @${t.authorHandle ?? 'unknown'}: ${t.text}` +
+        `${typeof t.likeCount === 'number' ? ` (likes ${t.likeCount})` : ''}`
+      );
     });
   }
 
@@ -196,6 +217,7 @@ Produce a JSON object with this exact shape:
     webTargetedResult,
     webHypothesisResult,
     socialPulseResult,
+    apifyTwitterResult,
     ...socialBackfillResults,
   ]);
   const signalPenalty = computeSignalQualityPenalty(toolResults, 8 + socialBackfillResults.length);
