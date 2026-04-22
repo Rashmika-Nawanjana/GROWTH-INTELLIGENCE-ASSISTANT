@@ -54,7 +54,7 @@ const LIVE_SIMULATIONS_MAP: Record<string, string> = parseLiveSimulations(
   process.env.MIROFISH_LIVE_SIMULATIONS
 );
 const LIVE_DEFAULT_SIM_ID = process.env.MIROFISH_LIVE_DEFAULT_SIMULATION_ID?.trim();
-const LIVE_STRICT_SERIAL_MODE = (process.env.MIROFISH_LIVE_STRICT_SERIAL_MODE ?? '1') !== '0';
+const LIVE_STRICT_SERIAL_MODE = (process.env.MIROFISH_LIVE_STRICT_SERIAL_MODE ?? '0') !== '0';
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -248,23 +248,23 @@ export async function interviewLiveSwarm(
   }
 
   const platform = options.platform ?? 'reddit';
-  const perAgentTimeoutSec = options.timeoutSec ?? 30;
+  const perAgentTimeoutSec = options.timeoutSec ?? 180;
   const desiredMaxAgents = LIVE_STRICT_SERIAL_MODE
     ? 1
-    : (options.maxAgents ?? 3);
+    : (options.maxAgents ?? 5);
 
-  const allAgentIds = await fetchLiveAgentIds(simulationId, Math.max(5, desiredMaxAgents));
+  const allAgentIds = await fetchLiveAgentIds(simulationId, Math.max(10, desiredMaxAgents));
   if (allAgentIds.length === 0) throw new Error('No agents found in live simulation config');
 
   const retryPlan = LIVE_STRICT_SERIAL_MODE
     ? [
-        { maxPromptChars: 90, maxAgents: 1 },
-        { maxPromptChars: 60, maxAgents: 1 },
+        { maxPromptChars: 240, maxAgents: 1 },
+        { maxPromptChars: 180, maxAgents: 1 },
       ]
     : [
-        { maxPromptChars: 220, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
-        { maxPromptChars: 140, maxAgents: Math.min(2, allAgentIds.length) },
-        { maxPromptChars: 90, maxAgents: 1 },
+        { maxPromptChars: 700, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
+        { maxPromptChars: 500, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
+        { maxPromptChars: 320, maxAgents: Math.max(1, Math.ceil(desiredMaxAgents / 2)) },
       ];
 
   let lastError = '';
@@ -282,7 +282,7 @@ export async function interviewLiveSwarm(
       if (attempt.response) responses.push(attempt.response);
       if (!attempt.response && attempt.error && !firstError) firstError = attempt.error;
       if (agentId !== tierAgentIds[tierAgentIds.length - 1]) {
-        await new Promise(r => setTimeout(r, 2_500));
+        await new Promise(r => setTimeout(r, 3_500));
       }
     }
 
@@ -341,7 +341,7 @@ export async function interviewLiveSwarm(
     /rate_limit_exceeded|Request too large|TPM|tokens per minute|413|invalid JSON schema|等待IPC响应超时|timeout/i
       .test(lastError);
   if (canUsePostFallback) {
-    const postResponses = await fetchLivePostResponsesMultiPlatform(simulationId, platform, 8);
+    const postResponses = await fetchLivePostResponsesMultiPlatform(simulationId, platform, 20);
     if (postResponses.length > 0) {
       return {
         data: {

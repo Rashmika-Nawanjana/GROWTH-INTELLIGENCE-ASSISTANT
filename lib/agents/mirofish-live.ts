@@ -56,9 +56,15 @@ function makeEmptyForecast(query: string, reason: string): ForecastOutput {
 }
 
 function getLiveMaxAgents(): number {
-  const raw = parseInt(process.env.MIROFISH_LIVE_MAX_AGENTS ?? '1', 10);
-  if (!Number.isFinite(raw)) return 1;
-  return Math.max(1, Math.min(6, raw));
+  const raw = parseInt(process.env.MIROFISH_LIVE_MAX_AGENTS ?? '5', 10);
+  if (!Number.isFinite(raw)) return 5;
+  return Math.max(1, Math.min(12, raw));
+}
+
+function getLiveInterviewTimeoutSec(): number {
+  const raw = parseInt(process.env.MIROFISH_LIVE_INTERVIEW_TIMEOUT_SEC ?? '240', 10);
+  if (!Number.isFinite(raw)) return 240;
+  return Math.max(30, Math.min(360, raw));
 }
 
 function hasNonAscii(text: string | undefined): boolean {
@@ -253,7 +259,10 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   let trendSummary = '';
 
   const [interviewResult, trendsResult] = await Promise.allSettled([
-    interviewLiveSwarm(simulationId, forecastQuestion, { timeoutSec: 30, maxAgents: getLiveMaxAgents() }),
+    interviewLiveSwarm(simulationId, forecastQuestion, {
+      timeoutSec: getLiveInterviewTimeoutSec(),
+      maxAgents: getLiveMaxAgents(),
+    }),
     // Keep trends non-blocking and lightweight in strict serial mode.
     searchTrends([product, competitor].filter(Boolean) as string[]),
   ]);
