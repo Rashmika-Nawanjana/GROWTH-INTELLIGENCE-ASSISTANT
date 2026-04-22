@@ -977,7 +977,21 @@ export default function VeracityDashboard() {
     setExpandedDomain(null);
     setAttachedImages([]);
   };
-  const getRunForDomain = (d: Domain) => currentResult?.agentRuns?.find(r => r.agentId === d || r.name?.toLowerCase().includes(d.split('-')[0]));
+  const getRunForDomain = (d: Domain) => {
+    const runs = currentResult?.agentRuns ?? [];
+    const exact = runs.find(r => r.agentId === d);
+    if (exact) return exact;
+
+    // Avoid false matches between "mirofish" and "mirofish-live".
+    if (d === 'mirofish-live') {
+      return runs.find(r => /mirofish live/i.test(r.name ?? ''));
+    }
+    if (d === 'mirofish') {
+      return runs.find(r => /mirofish/i.test(r.name ?? '') && !/mirofish live/i.test(r.name ?? ''));
+    }
+
+    return runs.find(r => r.name?.toLowerCase().includes(d.split('-')[0]));
+  };
   const getOutputForDomain = (d: Domain) => currentResult?.orchestratorOutput?.outputs?.find(o => o.domain === d);
   const hasLine = (needle: string) => orchestrationLines.some(line => line.toLowerCase().includes(needle.toLowerCase()));
   const researchRuns = (currentResult?.agentRuns ?? []).filter(r =>
