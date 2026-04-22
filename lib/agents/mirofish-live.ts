@@ -225,7 +225,8 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   let trendSummary = '';
 
   const [interviewResult, trendsResult] = await Promise.allSettled([
-    interviewLiveSwarm(simulationId, forecastQuestion, { timeoutSec: 45, maxAgents: 3 }),
+    interviewLiveSwarm(simulationId, forecastQuestion, { timeoutSec: 30, maxAgents: 1 }),
+    // Keep trends non-blocking and lightweight in strict serial mode.
     searchTrends([product, competitor].filter(Boolean) as string[]),
   ]);
 
