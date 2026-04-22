@@ -61,6 +61,7 @@ async function formulateForecastQuestion(
   competitor: string | undefined,
   priorContext: string | undefined,
 ): Promise<string> {
+  const fallback = query.trim();
   const prompt = `You are a prediction-market question writer.
 
 Product: ${product}${competitor ? `\nCompetitor: ${competitor}` : ''}
@@ -77,7 +78,33 @@ Critical rules:
 Reply with ONLY the rephrased question string, no JSON, no preamble.`;
 
   const result = await generateHuggingFaceText(prompt, { maxNewTokens: 160, temperature: 0.2 });
-  return result.trim() || query;
+  return sanitiseInterviewQuestion(result, fallback);
+}
+
+function sanitiseInterviewQuestion(raw: string | undefined, fallback: string): string {
+  const value = (raw ?? '').trim();
+  if (!value) return fallback;
+
+  // Remove control chars and common mojibake symbols that blow up token count.
+  let cleaned = value
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/[�]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // If model returns extra leading junk, keep from first plausible sentence start.
+  const starts = ['From your perspective', 'Will ', 'What ', 'How ', 'Why '];
+  const idx = starts
+    .map(s => cleaned.indexOf(s))
+    .filter(i => i >= 0)
+    .sort((a, b) => a - b)[0];
+  if (typeof idx === 'number' && idx > 0) cleaned = cleaned.slice(idx).trim();
+
+  // Hard cap prompt length to keep interview requests under Groq TPM.
+  const MAX_CHARS = 220;
+  if (cleaned.length > MAX_CHARS) cleaned = `${cleaned.slice(0, MAX_CHARS - 3).trim()}...`;
+
+  return cleaned || fallback;
 }
 
 async function synthesiseForecast(params: {
@@ -191,14 +218,14 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   // Step 2: Formulate forecast question
   const forecastQuestion = await formulateForecastQuestion(
     query, product, competitor, priorContext,
-  ).catch(() => query);
+  ).catch(() => sanitiseInterviewQuestion(query, query));
 
   // Step 3: Interview live swarm + trend baseline in parallel
   let swarmBundle: { responses: { response: string }[]; totalCount: number };
   let trendSummary = '';
 
   const [interviewResult, trendsResult] = await Promise.allSettled([
-    interviewLiveSwarm(simulationId, forecastQuestion, { timeoutSec: 90 }),
+    interviewLiveSwarm(simulationId, forecastQuestion, { timeoutSec: 45, maxAgents: 3 }),
     searchTrends([product, competitor].filter(Boolean) as string[]),
   ]);
 

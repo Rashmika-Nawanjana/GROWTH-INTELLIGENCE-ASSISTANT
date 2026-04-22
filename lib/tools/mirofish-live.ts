@@ -120,6 +120,15 @@ async function fetchLiveAgentIds(simulationId: string, maxAgents = 6): Promise<n
   return all.slice(0, maxAgents);
 }
 
+function trimInterviewPrompt(prompt: string, maxChars: number): string {
+  const cleaned = prompt
+    .replace(/[\u0000-\u001f\u007f]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (cleaned.length <= maxChars) return cleaned;
+  return `${cleaned.slice(0, Math.max(0, maxChars - 3)).trim()}...`;
+}
+
 /**
  * Interview a single agent on the live VPS.
  */
@@ -129,28 +138,39 @@ async function interviewLiveAgent(
   prompt: string,
   platform: 'reddit' | 'twitter',
   timeoutSec: number,
-): Promise<SwarmInterviewResponse | null> {
+): Promise<{ response: SwarmInterviewResponse | null; error?: string }> {
   try {
+    const safePrompt = trimInterviewPrompt(prompt, 240);
     const res = await fetch(`${LIVE_BASE_URL}/api/simulation/interview`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         simulation_id: simulationId,
         agent_id: agentId,
-        prompt,
+        prompt: safePrompt || prompt.slice(0, 240),
         platform,
         timeout: timeoutSec,
       }),
       signal: AbortSignal.timeout((timeoutSec + 5) * 1_000),
     });
-    if (!res.ok) return null;
-    const json = await res.json() as { success: boolean; data?: { result?: string; response?: string } };
-    if (!json.success) return null;
+    if (!res.ok) return { response: null, error: `HTTP ${res.status}` };
+    const json = await res.json() as {
+      success: boolean;
+      error?: string;
+      data?: { result?: string; response?: string; error?: string; success?: boolean };
+    };
+    if (!json.success) {
+      const err = json.data?.error ?? json.error ?? 'unknown interview failure';
+      return { response: null, error: String(err) };
+    }
     const response = json.data?.result ?? json.data?.response ?? '';
-    if (!response) return null;
-    return { agent_id: agentId, response, platform };
+    if (!response) {
+      const err = json.data?.error ?? 'empty interview response';
+      return { response: null, error: String(err) };
+    }
+    return { response: { agent_id: agentId, response, platform } };
   } catch {
-    return null;
+    return { response: null, error: 'request timeout or network error' };
   }
 }
 
@@ -161,7 +181,7 @@ async function interviewLiveAgent(
 export async function interviewLiveSwarm(
   simulationId: string,
   prompt: string,
-  options: { platform?: 'twitter' | 'reddit'; timeoutSec?: number } = {},
+  options: { platform?: 'twitter' | 'reddit'; timeoutSec?: number; maxAgents?: number } = {},
 ): Promise<ToolResult<SwarmInterviewBundle>> {
   const cacheKey = `mirofish-live:interview:${simulationId}:${prompt}`;
 
@@ -173,48 +193,91 @@ export async function interviewLiveSwarm(
   }
 
   const platform = options.platform ?? 'reddit';
-  const perAgentTimeoutSec = options.timeoutSec ?? 50;
+  const perAgentTimeoutSec = options.timeoutSec ?? 40;
+  const desiredMaxAgents = options.maxAgents ?? 3;
 
-  const agentIds = await fetchLiveAgentIds(simulationId, 5);
-  if (agentIds.length === 0) throw new Error('No agents found in live simulation config');
+  const allAgentIds = await fetchLiveAgentIds(simulationId, Math.max(5, desiredMaxAgents));
+  if (allAgentIds.length === 0) throw new Error('No agents found in live simulation config');
 
-  const responses: SwarmInterviewResponse[] = [];
+  const retryPlan = [
+    { maxPromptChars: 220, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
+    { maxPromptChars: 140, maxAgents: Math.min(2, allAgentIds.length) },
+    { maxPromptChars: 90, maxAgents: 1 },
+  ];
 
-  for (const agentId of agentIds) {
-    const resp = await interviewLiveAgent(simulationId, agentId, prompt, platform, perAgentTimeoutSec);
-    if (resp) responses.push(resp);
-    if (agentId !== agentIds[agentIds.length - 1]) {
-      await new Promise(r => setTimeout(r, 4_500));
+  let lastError = '';
+  let bestResponses: SwarmInterviewResponse[] = [];
+
+  for (let tier = 0; tier < retryPlan.length; tier++) {
+    const plan = retryPlan[tier];
+    const tierPrompt = trimInterviewPrompt(prompt, plan.maxPromptChars);
+    const tierAgentIds = allAgentIds.slice(0, Math.max(1, plan.maxAgents));
+    const responses: SwarmInterviewResponse[] = [];
+    let firstError: string | undefined;
+
+    for (const agentId of tierAgentIds) {
+      const attempt = await interviewLiveAgent(simulationId, agentId, tierPrompt, platform, perAgentTimeoutSec);
+      if (attempt.response) responses.push(attempt.response);
+      if (!attempt.response && attempt.error && !firstError) firstError = attempt.error;
+      if (agentId !== tierAgentIds[tierAgentIds.length - 1]) {
+        await new Promise(r => setTimeout(r, 2_500));
+      }
+    }
+
+    if (responses.length > bestResponses.length) bestResponses = responses;
+    if (responses.length > 0) {
+      const bundle: SwarmInterviewBundle = {
+        simulationId,
+        prompt: tierPrompt,
+        responses,
+        totalCount: responses.length,
+      };
+
+      const confidence = Math.min(0.9, responses.length >= 4 ? 0.78 : responses.length >= 2 ? 0.58 : 0.38);
+      const result: ToolResult<SwarmInterviewBundle> = {
+        data: bundle,
+        source: 'MiroFish Live VPS',
+        sourceUrl: `${LIVE_BASE_URL}/api/simulation/interview`,
+        timestamp: new Date().toISOString(),
+        confidence,
+        cached: false,
+      };
+
+      try {
+        await setCache('mirofish_interview', cacheKey, result);
+      } catch { /* non-fatal */ }
+
+      return result;
+    }
+
+    lastError = firstError ?? 'unknown interview failure';
+    const rateLimited =
+      /rate_limit_exceeded|Request too large|TPM|tokens per minute|413/i.test(lastError);
+    if (!rateLimited || tier === retryPlan.length - 1) {
+      break;
     }
   }
 
-  if (responses.length === 0) {
-    throw new Error('All live-agent interviews failed — check VPS logs (docker compose logs -f)');
+  if (bestResponses.length > 0) {
+    const bundle: SwarmInterviewBundle = {
+      simulationId,
+      prompt: trimInterviewPrompt(prompt, 140),
+      responses: bestResponses,
+      totalCount: bestResponses.length,
+    };
+    return {
+      data: bundle,
+      source: 'MiroFish Live VPS',
+      sourceUrl: `${LIVE_BASE_URL}/api/simulation/interview`,
+      timestamp: new Date().toISOString(),
+      confidence: 0.38,
+      cached: false,
+    };
   }
 
-  const bundle: SwarmInterviewBundle = {
-    simulationId,
-    prompt,
-    responses,
-    totalCount: responses.length,
-  };
-
-  const confidence = Math.min(0.9, responses.length >= 4 ? 0.78 : responses.length >= 2 ? 0.58 : 0.38);
-
-  const result: ToolResult<SwarmInterviewBundle> = {
-    data: bundle,
-    source: 'MiroFish Live VPS',
-    sourceUrl: `${LIVE_BASE_URL}/api/simulation/interview`,
-    timestamp: new Date().toISOString(),
-    confidence,
-    cached: false,
-  };
-
-  try {
-    await setCache('mirofish_interview', cacheKey, result);
-  } catch { /* non-fatal */ }
-
-  return result;
+  throw new Error(
+    `All live-agent interviews failed${lastError ? `: ${lastError}` : ''} — check VPS logs (docker compose logs -f)`
+  );
 }
 
 export { LIVE_BASE_URL };
