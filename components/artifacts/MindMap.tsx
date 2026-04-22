@@ -382,6 +382,7 @@ function SidePanel({
 
   return (
     <div
+      data-mindmap-ui
       className="absolute right-0 top-0 h-full flex flex-col z-20 overflow-y-auto"
       style={{
         width: 264,
@@ -389,6 +390,8 @@ function SidePanel({
         borderLeft: `2px solid ${color.border}`,
         backdropFilter: 'blur(10px)',
       }}
+      onPointerDown={e => e.stopPropagation()}
+      onPointerMove={e => e.stopPropagation()}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-2 p-4 pb-3">
@@ -409,9 +412,15 @@ function SidePanel({
           </h4>
         </div>
         <button
-          onClick={onClose}
+          type="button"
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => {
+            e.stopPropagation();
+            onClose();
+          }}
           className="shrink-0 p-1 rounded-md hover:bg-black/10 transition-colors"
           style={{ color: color.text }}
+          aria-label="Close detail panel"
         >
           <X size={14} />
         </button>
@@ -523,10 +532,23 @@ function LegendPanel({
   onClose: () => void;
 }) {
   return (
-    <div className="absolute bottom-3 left-3 z-30 rounded-xl border border-border bg-white/96 backdrop-blur-sm shadow-lg p-3 w-52">
+    <div
+      data-mindmap-ui
+      className="absolute bottom-3 left-3 z-30 rounded-xl border border-border bg-white/96 backdrop-blur-sm shadow-lg p-3 w-52"
+      onPointerDown={e => e.stopPropagation()}
+      onPointerMove={e => e.stopPropagation()}
+    >
       <div className="flex items-center justify-between mb-2.5">
         <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider">Legend</span>
-        <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
+        <button
+          type="button"
+          onPointerDown={e => e.stopPropagation()}
+          onClick={e => {
+            e.stopPropagation();
+            onClose();
+          }}
+          className="text-muted-foreground hover:text-foreground transition-colors"
+        >
           <X size={12} />
         </button>
       </div>
@@ -649,7 +671,10 @@ export function MindMap({ output }: Props) {
 
   // ── Pan via pointer drag ───────────────────────────────────────────────────
   const onPointerDown = useCallback((e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest('[data-node]')) return;
+    const t = e.target as HTMLElement;
+    if (t.closest('[data-node]')) return;
+    // Side panel / legend sit inside the pan container — don't steal pointer for map drag
+    if (t.closest('[data-mindmap-ui]')) return;
     setIsDragging(true);
     dragStart.current = { x: e.clientX, y: e.clientY, panX: pan.x, panY: pan.y };
     (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);

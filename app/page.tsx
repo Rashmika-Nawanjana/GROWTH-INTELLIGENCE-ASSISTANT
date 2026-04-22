@@ -77,6 +77,8 @@ type Message = {
   agentRuns?: AgentRun[];
   orchestratorOutput?: OrchestratorOutput;
   liveMetrics?: LiveRunMetrics;
+  /** Live backend status lines while the chat stream is open (not persisted). */
+  orchestrationLog?: string[];
 };
 type FollowUp = {
   id: number;
@@ -411,6 +413,7 @@ export default function VeracityDashboard() {
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const followUpEndRef  = useRef<HTMLDivElement>(null);
   const textareaRef     = useRef<HTMLTextAreaElement>(null);
+  const orchLogScrollRef = useRef<HTMLDivElement>(null);
 
   const autoResizeTextarea = useCallback(() => {
     const ta = textareaRef.current;
@@ -433,6 +436,13 @@ export default function VeracityDashboard() {
   const completedCount = currentResult?.agentRuns?.filter(r => r.status === 'completed').length ?? 0;
   const totalCount     = currentResult?.agentRuns?.length ?? 0;
   const selectedAgentIds = ALL_DOMAINS.filter(d => selectedAgents[d]);
+  const orchLogLen     = currentResult?.orchestrationLog?.length ?? 0;
+
+  useEffect(() => {
+    const el = orchLogScrollRef.current;
+    if (!el || orchLogLen === 0) return;
+    el.scrollTop = el.scrollHeight;
+  }, [orchLogLen, isLoading]);
 
   const refreshSessions = useCallback(async () => {
     setLoadingSessions(true);
@@ -608,7 +618,7 @@ export default function VeracityDashboard() {
     requestAnimationFrame(autoResizeTextarea);
 
     const assistantId = Date.now() + 1;
-    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', type: 'intelligence', content: '', agentRuns: [] }]);
+    setMessages(prev => [...prev, { id: assistantId, role: 'assistant', type: 'intelligence', content: '', agentRuns: [], orchestrationLog: [] }]);
 
     const imagePayloads: ImageAttachment[] = images.map(img => ({ data: img.data, mimeType: img.mimeType }));
 
@@ -660,6 +670,15 @@ export default function VeracityDashboard() {
                     chunk.run,
                   ],
                   liveMetrics: (chunk.metrics as LiveRunMetrics | undefined) ?? m.liveMetrics,
+                } : m
+              ));
+            }
+
+            if (chunk.type === 'orchestration_log' && typeof chunk.line === 'string') {
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId ? {
+                  ...m,
+                  orchestrationLog: [...(m.orchestrationLog ?? []), chunk.line].slice(-48),
                 } : m
               ));
             }
@@ -733,6 +752,9 @@ export default function VeracityDashboard() {
         m.id === assistantId ? { ...m, content: 'Failed to connect. Please try again.' } : m
       ));
     } finally {
+      setMessages(prev => prev.map(m =>
+        m.id === assistantId ? { ...m, orchestrationLog: undefined } : m
+      ));
       setIsLoading(false);
       setMirofishRunning(false);
     }
@@ -1333,6 +1355,31 @@ export default function VeracityDashboard() {
                     )}
                   </div>
                 </div>
+
+                {isLoading && orchLogLen > 0 && currentResult?.orchestrationLog && (
+                  <div
+                    ref={orchLogScrollRef}
+                    className="mb-4 rounded-lg px-3 py-2.5 max-h-[132px] overflow-y-auto"
+                    style={{ background: cardBg2, border: `1px solid ${borderC}` }}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1.5 text-[10px] font-mono uppercase tracking-widest" style={{ color: textSubtle }}>
+                      <Activity size={11} className="shrink-0 animate-pulse" />
+                      <span>Orchestration</span>
+                    </div>
+                    <ul className="flex flex-col gap-1 font-mono text-[11px] leading-snug list-none p-0 m-0">
+                      {currentResult.orchestrationLog.map((line, i) => {
+                        const latest = i === currentResult.orchestrationLog!.length - 1;
+                        return (
+                          <li key={`${i}-${line.slice(0, 24)}`} className="flex gap-2 pl-0.5">
+                            <span className="shrink-0 opacity-40 select-none">›</span>
+                            <span style={{ color: latest ? textMain : textMuted }}>{line}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2.5">
                   {visibleTabDomains.map(domain => {
                     const run = getRunForDomain(domain);
