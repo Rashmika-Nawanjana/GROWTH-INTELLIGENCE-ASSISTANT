@@ -121,6 +121,38 @@ async function fetchLiveAgentIds(simulationId: string, maxAgents = 6): Promise<n
   return all.slice(0, maxAgents);
 }
 
+async function fetchLivePostResponses(
+  simulationId: string,
+  platform: 'twitter' | 'reddit',
+  limit = 12,
+): Promise<SwarmInterviewResponse[]> {
+  try {
+    const res = await fetch(
+      `${LIVE_BASE_URL}/api/simulation/${encodeURIComponent(simulationId)}/posts?limit=${limit}&offset=0&platform=${platform}`,
+      { signal: AbortSignal.timeout(8_000) },
+    );
+    if (!res.ok) return [];
+    const json = await res.json() as {
+      success?: boolean;
+      data?: { posts?: Array<{ user_id?: number; content?: string }> };
+    };
+    const posts = json?.data?.posts ?? [];
+    return posts
+      .map((p, idx) => {
+        const content = (p.content ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+        if (!content) return null;
+        return {
+          agent_id: typeof p.user_id === 'number' ? p.user_id : (9000 + idx),
+          response: content.slice(0, 380),
+          platform,
+        } as SwarmInterviewResponse;
+      })
+      .filter((x): x is SwarmInterviewResponse => Boolean(x));
+  } catch {
+    return [];
+  }
+}
+
 function trimInterviewPrompt(prompt: string, maxChars: number): string {
   const cleaned = prompt
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
@@ -281,6 +313,28 @@ export async function interviewLiveSwarm(
       confidence: 0.38,
       cached: false,
     };
+  }
+
+  const canUsePostFallback =
+    /rate_limit_exceeded|Request too large|TPM|tokens per minute|413|invalid JSON schema|等待IPC响应超时|timeout/i
+      .test(lastError);
+  if (canUsePostFallback) {
+    const postResponses = await fetchLivePostResponses(simulationId, platform, 12);
+    if (postResponses.length > 0) {
+      return {
+        data: {
+          simulationId,
+          prompt: trimInterviewPrompt(prompt, 120),
+          responses: postResponses,
+          totalCount: postResponses.length,
+        },
+        source: 'MiroFish Live VPS (posts fallback)',
+        sourceUrl: `${LIVE_BASE_URL}/api/simulation/${encodeURIComponent(simulationId)}/posts`,
+        timestamp: new Date().toISOString(),
+        confidence: 0.24,
+        cached: false,
+      };
+    }
   }
 
   throw new Error(
