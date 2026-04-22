@@ -186,7 +186,7 @@ function ContributingSignals({ signals }: { signals: ForecastSignal[] }) {
                 />
               </div>
               {s.excerpt && (
-                <p className="text-[10px] text-slate-400 italic line-clamp-1 pl-2">
+                <p className="text-[10px] text-slate-400 italic pl-2 break-words">
                   &ldquo;{s.excerpt}&rdquo;
                 </p>
               )}
