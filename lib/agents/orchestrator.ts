@@ -637,6 +637,18 @@ export async function runMirofishLiveAgent(
   memoryContext?: string,
   onOrchestrationLog?: (message: string) => void,
 ): Promise<AgentOutput | null> {
+  const isUnavailableLiveOutput = (output: AgentOutput): boolean => {
+    const forecastLike = output as AgentOutput & { rationale?: string; swarmSize?: number };
+    const interpretation = Array.isArray(output.interpretation) ? output.interpretation : [];
+    const rationale = typeof forecastLike.rationale === 'string' ? forecastLike.rationale : '';
+    const swarmSize = typeof forecastLike.swarmSize === 'number' ? forecastLike.swarmSize : undefined;
+    return (
+      interpretation.some(line => /mirofish live unavailable|live swarm unavailable|live swarm interviews failed/i.test(line)) ||
+      /unavailable|interviews failed|no responses/i.test(rationale) ||
+      swarmSize === 0
+    );
+  };
+
   onOrchestrationLog?.('MiroFish Live: connecting to real VPS (168.144.36.78)…');
   const classification = await classifyQuery(query, history, images, memoryContext);
   const { product, competitor, productUrl, competitorUrl, intent } = classification;
@@ -668,7 +680,13 @@ export async function runMirofishLiveAgent(
   try {
     onOrchestrationLog?.('MiroFish Live: interviewing live swarm…');
     const output = await mirofishLiveAgent.run(agentContext);
-    onAgentUpdate?.({ ...liveRun, status: 'completed', completedAt: new Date().toISOString() });
+    const failed = isUnavailableLiveOutput(output);
+    onAgentUpdate?.({
+      ...liveRun,
+      status: failed ? 'failed' : 'completed',
+      completedAt: new Date().toISOString(),
+      ...(failed ? { error: (output as AgentOutput & { rationale?: string }).rationale ?? 'Live swarm unavailable' } : {}),
+    });
     return output;
   } catch (err) {
     onAgentUpdate?.({

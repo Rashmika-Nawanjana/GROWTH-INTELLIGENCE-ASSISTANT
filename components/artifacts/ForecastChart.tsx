@@ -10,6 +10,19 @@ interface ForecastChartProps {
   product: string;
 }
 
+function formatTimeHorizonBadge(raw: string): string {
+  const value = (raw ?? '').trim();
+  if (!value) return 'unknown';
+  const parsedMs = Date.parse(value);
+  if (!Number.isNaN(parsedMs)) {
+    const d = new Date(parsedMs);
+    const formatted = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    if (d.getTime() < Date.now()) return `Historical · ${formatted}`;
+    return formatted;
+  }
+  return value;
+}
+
 // ── Confidence badge ──────────────────────────────────────────────────────────
 function ConfidenceBadge({ level }: { level?: string }) {
   if (!level) return null;
@@ -173,7 +186,7 @@ function ContributingSignals({ signals }: { signals: ForecastSignal[] }) {
                 />
               </div>
               {s.excerpt && (
-                <p className="text-[10px] text-slate-400 italic line-clamp-1 pl-2">
+                <p className="text-[10px] text-slate-400 italic pl-2 break-words">
                   &ldquo;{s.excerpt}&rdquo;
                 </p>
               )}
@@ -202,6 +215,7 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
     direction, swarmSize, timeHorizon, distribution, contributingSignals,
     rationale, confidence, facts = [], interpretation = [],
   } = output;
+  const timeHorizonLabel = formatTimeHorizonBadge(timeHorizon);
 
   const accentColor = '#06b6d4';   // cyan-500 — MiroFish brand color
   const accentBg    = 'rgba(6,182,212,0.08)';
@@ -237,7 +251,7 @@ export function ForecastChart({ output, product }: ForecastChartProps) {
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-[10px] font-mono px-2 py-0.5 rounded" style={{ color: textMuted, background: accentBg, border: `1px solid ${accentBorder}` }}>
-            {timeHorizon}
+            {timeHorizonLabel}
           </span>
           <ConfidenceBadge level={confidence} />
         </div>

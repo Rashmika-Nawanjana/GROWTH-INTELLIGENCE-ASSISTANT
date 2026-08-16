@@ -54,6 +54,7 @@ const LIVE_SIMULATIONS_MAP: Record<string, string> = parseLiveSimulations(
   process.env.MIROFISH_LIVE_SIMULATIONS
 );
 const LIVE_DEFAULT_SIM_ID = process.env.MIROFISH_LIVE_DEFAULT_SIMULATION_ID?.trim();
+const LIVE_STRICT_SERIAL_MODE = (process.env.MIROFISH_LIVE_STRICT_SERIAL_MODE ?? '0') !== '0';
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
@@ -118,6 +119,60 @@ async function fetchLiveAgentIds(simulationId: string, maxAgents = 6): Promise<n
     [all[i], all[j]] = [all[j], all[i]];
   }
   return all.slice(0, maxAgents);
+}
+
+async function fetchLivePostResponses(
+  simulationId: string,
+  platform: 'twitter' | 'reddit',
+  limit = 12,
+): Promise<SwarmInterviewResponse[]> {
+  try {
+    const res = await fetch(
+      `${LIVE_BASE_URL}/api/simulation/${encodeURIComponent(simulationId)}/posts?limit=${limit}&offset=0&platform=${platform}`,
+      { signal: AbortSignal.timeout(8_000) },
+    );
+    if (!res.ok) return [];
+    const json = await res.json() as {
+      success?: boolean;
+      data?: { posts?: Array<{ user_id?: number; content?: string }> };
+    };
+    const posts = json?.data?.posts ?? [];
+    return posts
+      .map((p, idx) => {
+        const content = (p.content ?? '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
+        if (!content) return null;
+        return {
+          agent_id: typeof p.user_id === 'number' ? p.user_id : (9000 + idx),
+          response: content.slice(0, 380),
+          platform,
+        } as SwarmInterviewResponse;
+      })
+      .filter((x): x is SwarmInterviewResponse => Boolean(x));
+  } catch {
+    return [];
+  }
+}
+
+async function fetchLivePostResponsesMultiPlatform(
+  simulationId: string,
+  preferredPlatform: 'twitter' | 'reddit',
+  limitPerPlatform = 8,
+): Promise<SwarmInterviewResponse[]> {
+  const platforms: Array<'twitter' | 'reddit'> =
+    preferredPlatform === 'reddit' ? ['reddit', 'twitter'] : ['twitter', 'reddit'];
+  const batches = await Promise.all(
+    platforms.map(p => fetchLivePostResponses(simulationId, p, limitPerPlatform))
+  );
+  const merged = batches.flat();
+  const seen = new Set<string>();
+  const unique: SwarmInterviewResponse[] = [];
+  for (const r of merged) {
+    const key = `${r.platform}:${r.agent_id}:${r.response}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(r);
+  }
+  return unique;
 }
 
 function trimInterviewPrompt(prompt: string, maxChars: number): string {
@@ -193,17 +248,24 @@ export async function interviewLiveSwarm(
   }
 
   const platform = options.platform ?? 'reddit';
-  const perAgentTimeoutSec = options.timeoutSec ?? 40;
-  const desiredMaxAgents = options.maxAgents ?? 3;
+  const perAgentTimeoutSec = options.timeoutSec ?? 180;
+  const desiredMaxAgents = LIVE_STRICT_SERIAL_MODE
+    ? 1
+    : (options.maxAgents ?? 5);
 
-  const allAgentIds = await fetchLiveAgentIds(simulationId, Math.max(5, desiredMaxAgents));
+  const allAgentIds = await fetchLiveAgentIds(simulationId, Math.max(10, desiredMaxAgents));
   if (allAgentIds.length === 0) throw new Error('No agents found in live simulation config');
 
-  const retryPlan = [
-    { maxPromptChars: 220, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
-    { maxPromptChars: 140, maxAgents: Math.min(2, allAgentIds.length) },
-    { maxPromptChars: 90, maxAgents: 1 },
-  ];
+  const retryPlan = LIVE_STRICT_SERIAL_MODE
+    ? [
+        { maxPromptChars: 240, maxAgents: 1 },
+        { maxPromptChars: 180, maxAgents: 1 },
+      ]
+    : [
+        { maxPromptChars: 700, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
+        { maxPromptChars: 500, maxAgents: Math.min(desiredMaxAgents, allAgentIds.length) },
+        { maxPromptChars: 320, maxAgents: Math.max(1, Math.ceil(desiredMaxAgents / 2)) },
+      ];
 
   let lastError = '';
   let bestResponses: SwarmInterviewResponse[] = [];
@@ -220,7 +282,7 @@ export async function interviewLiveSwarm(
       if (attempt.response) responses.push(attempt.response);
       if (!attempt.response && attempt.error && !firstError) firstError = attempt.error;
       if (agentId !== tierAgentIds[tierAgentIds.length - 1]) {
-        await new Promise(r => setTimeout(r, 2_500));
+        await new Promise(r => setTimeout(r, 3_500));
       }
     }
 
@@ -273,6 +335,28 @@ export async function interviewLiveSwarm(
       confidence: 0.38,
       cached: false,
     };
+  }
+
+  const canUsePostFallback =
+    /rate_limit_exceeded|Request too large|TPM|tokens per minute|413|invalid JSON schema|等待IPC响应超时|timeout/i
+      .test(lastError);
+  if (canUsePostFallback) {
+    const postResponses = await fetchLivePostResponsesMultiPlatform(simulationId, platform, 20);
+    if (postResponses.length > 0) {
+      return {
+        data: {
+          simulationId,
+          prompt: trimInterviewPrompt(prompt, 120),
+          responses: postResponses,
+          totalCount: postResponses.length,
+        },
+        source: 'MiroFish Live VPS (posts fallback)',
+        sourceUrl: `${LIVE_BASE_URL}/api/simulation/${encodeURIComponent(simulationId)}/posts`,
+        timestamp: new Date().toISOString(),
+        confidence: 0.24,
+        cached: false,
+      };
+    }
   }
 
   throw new Error(

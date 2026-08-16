@@ -1,6 +1,7 @@
 import { searchWeb, searchNews } from '../tools/serpapi';
 import { scrapePage, scrapeCompetitorPricing } from '../tools/firecrawl';
 import { searchHN } from '../tools/hn-algolia';
+import { scrapeTwitterX } from '../tools/apify-twitter';
 import { generateHuggingFaceJson } from './gemini';
 import {
   competitorSiteUrl,
@@ -26,13 +27,18 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
   const compUrl = competitorSiteUrl(ctx);
 
   // ── Parallel data fetch ────────────────────────────────────────────────────
-  const [webResult, newsResult, hnResult, scrapeResult, pricingResult, socialSignalsResult] = await Promise.allSettled([
+  const [webResult, newsResult, hnResult, scrapeResult, pricingResult, socialSignalsResult, apifyTwitterResult] = await Promise.allSettled([
     searchWeb(`${competitorName} features product update 2025 2026`),
     searchNews(`${competitorName} funding launch product announcement 2025`),
     searchHN(`${competitorName} ${product}`),
     compUrl ? scrapePage(compUrl) : skippedScrapePromise(),
     compUrl ? scrapeCompetitorPricing(compUrl) : skippedScrapePromise(),
     searchWeb(`${competitorName} ${product} site:x.com OR site:twitter.com OR site:instagram.com OR site:linkedin.com launch feature feedback`),
+    scrapeTwitterX([`${competitorName} ${product}`, `${competitorName} launch feedback`], {
+      maxItems: 80,
+      sort: 'Latest',
+      language: 'en',
+    }),
   ]);
 
   // Hiring signals
@@ -77,6 +83,20 @@ async function run(ctx: AgentContext): Promise<AgentOutput> {
     socialSignalsResult.value.data.slice(0, 3).forEach(r => {
       sources.push({ url: r.url, title: r.title, timestamp: socialSignalsResult.value.timestamp, tool: 'serpapi' });
       rawContent.push(`[SOCIAL SIGNAL] ${r.title}: ${r.snippet}`);
+    });
+  }
+  if (apifyTwitterResult.status === 'fulfilled') {
+    apifyTwitterResult.value.data.slice(0, 8).forEach(t => {
+      sources.push({
+        url: t.url,
+        title: `X @${t.authorHandle ?? 'unknown'}`,
+        timestamp: t.createdAt ?? apifyTwitterResult.value.timestamp,
+        tool: 'apify',
+      });
+      rawContent.push(
+        `[APIFY X] @${t.authorHandle ?? 'unknown'}: ${t.text}` +
+        `${typeof t.likeCount === 'number' ? ` (likes ${t.likeCount})` : ''}`
+      );
     });
   }
   if (hiringResult[0].status === 'fulfilled') {
@@ -137,8 +157,8 @@ For the matrix, infer the most relevant feature dimensions from the signals abov
   }
 
   const rawScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
-  const toolResults = extractToolResults([webResult, newsResult, hnResult, scrapeResult, pricingResult, socialSignalsResult, hiringResult[0]]);
-  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 7)).toFixed(2));
+  const toolResults = extractToolResults([webResult, newsResult, hnResult, scrapeResult, pricingResult, socialSignalsResult, apifyTwitterResult, hiringResult[0]]);
+  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 8)).toFixed(2));
   const confidence: ConfidenceLevel = scoreToLevel(confScore);
 
   const output: CompetitiveOutput = {

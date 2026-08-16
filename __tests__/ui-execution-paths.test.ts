@@ -46,10 +46,13 @@ describe('UI-triggered execution paths', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/refine',
-      expect.objectContaining({ method: 'POST' }),
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
     );
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     expect(body).toEqual({ sessionId: 'session-1', messageId: 'msg-1', focus: 'ROI' });
-    expect(result?.feedbackApplied.variantResults).toBe(1);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.feedbackApplied.variantResults).toBe(1);
+    }
   });
 });
