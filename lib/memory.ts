@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase-browser';
+import { apiAuthHeaders } from '@/lib/api-auth';
 
 export interface UserMemory {
   role: string | null;
@@ -68,7 +69,8 @@ export async function extractAndUpdateMemory(
   try {
     await fetch('/api/memory', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await apiAuthHeaders(),
+      credentials: 'include',
       body: JSON.stringify({ sessionId, userQuery, assistantAnswer, existingMemory }),
     });
   } catch (err) {

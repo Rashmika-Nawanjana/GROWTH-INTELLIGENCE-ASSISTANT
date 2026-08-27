@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useTheme } from '@/lib/theme-provider';
 import { Crosshair, Loader2, Sparkles } from 'lucide-react';
+import { apiAuthHeaders } from '@/lib/api-auth';
 
 type Result = {
   summary: string;
@@ -28,7 +29,8 @@ export function StealStrategyPanel() {
     try {
       const res = await fetch('/api/steal-strategy', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await apiAuthHeaders(),
+        credentials: 'include',
         body: JSON.stringify({
           company: company.trim(),
           market: market.trim() || undefined,

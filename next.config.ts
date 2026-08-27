@@ -1,5 +1,8 @@
 import type {NextConfig} from 'next';
 
+const pythonBackendUrl =
+  process.env.PYTHON_BACKEND_URL?.trim() || 'http://127.0.0.1:8000';
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   eslint: {
@@ -7,6 +10,17 @@ const nextConfig: NextConfig = {
   },
   typescript: {
     ignoreBuildErrors: false,
+  },
+  // Proxy intelligence API to the Python FastAPI backend.
+  // Filesystem routes take precedence — app/api/* TS handlers were removed.
+  // Keep app/auth/callback as a Next route (not rewritten).
+  async rewrites() {
+    return [
+      {
+        source: '/api/:path*',
+        destination: `${pythonBackendUrl}/api/:path*`,
+      },
+    ];
   },
   // Allow access to remote image placeholder.
   images: {

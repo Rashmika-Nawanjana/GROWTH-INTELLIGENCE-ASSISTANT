@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:backend": "cd backend && python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
     "mirofish": "cd mirofish-service && .venv/bin/python server.py",
-    "dev:full": "concurrently \"npm run dev\" \"npm run mirofish\"",
+    "dev:full": "concurrently \"npm run dev\" \"npm run dev:backend\"",
+    "dev:full:mirofish": "concurrently \"npm run dev\" \"npm run dev:backend\" \"npm run mirofish\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

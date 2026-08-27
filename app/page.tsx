@@ -26,13 +26,15 @@ import {
   rateRecommendation, recommendationKey, type RecommendationRating,
 } from '@/lib/feedback';
 import { filterDisplaySources } from '@/lib/tools/source-validator';
+import { apiAuthHeaders } from '@/lib/api-auth';
 
 // Per-session pgvector recall (semantic search over earlier turns in this chat)
 async function recallContextForSession(sessionId: string, query: string): Promise<string> {
   try {
     const res = await fetch('/api/recall', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await apiAuthHeaders(),
+      credentials: 'include',
       body: JSON.stringify({ sessionId, query }),
     });
     if (!res.ok) return '';
@@ -41,11 +43,12 @@ async function recallContextForSession(sessionId: string, query: string): Promis
   } catch { return ''; }
 }
 
-function indexMessageInBackground(sessionId: string, role: 'user' | 'assistant', content: string) {
+async function indexMessageInBackground(sessionId: string, role: 'user' | 'assistant', content: string) {
   if (!content?.trim()) return;
   fetch('/api/embed', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await apiAuthHeaders(),
+    credentials: 'include',
     body: JSON.stringify({ sessionId, role, content }),
   }).catch(() => {});
 }
@@ -657,7 +660,8 @@ export default function VeracityDashboard() {
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await apiAuthHeaders(),
+        credentials: 'include',
         body: JSON.stringify({
           query: effectiveText,
           history,
@@ -959,7 +963,9 @@ export default function VeracityDashboard() {
 
     try {
       const res = await fetch('/api/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST',
+        headers: await apiAuthHeaders(),
+        credentials: 'include',
         body: JSON.stringify({
           query: text,
           history,

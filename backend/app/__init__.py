@@ -1,0 +1,1 @@
+"""Growth Intelligence Assistant — Python FastAPI backend."""

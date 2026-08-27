@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTheme } from '@/lib/theme-provider';
 import type { RunMetrics } from '@/lib/agents/types';
+import { apiAuthHeaders } from '@/lib/api-auth';
 
 /** Mirrors chat stream `liveMetrics` in page.tsx. */
 type LiveStreamMetrics = {
@@ -45,7 +46,10 @@ export function ApiUsagePanel({
   const load = useCallback(async () => {
     setErr(null);
     try {
-      const res = await fetch('/api/usage-info');
+      const res = await fetch('/api/usage-info', {
+        headers: await apiAuthHeaders(),
+        credentials: 'include',
+      });
       if (!res.ok) {
         setErr(res.status === 401 ? 'Sign in to see usage details.' : 'Could not load usage info.');
         return;

@@ -4,6 +4,7 @@
 // discriminated union in app/api/feedback/route.ts.
 
 import type { ExecutionPlanOutput, FeedbackAppliedCounts, OrchestratorOutput, RefinementDelta } from '@/lib/agents/types';
+import { apiAuthHeaders } from '@/lib/api-auth';
 
 export type RecommendationRating = 'up' | 'down' | 'neutral';
 export type RecommendationAction = 'accepted' | 'rejected' | 'refined' | 'copied';
@@ -23,7 +24,8 @@ async function postFeedback(body: unknown): Promise<boolean> {
   try {
     const res = await fetch('/api/feedback', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await apiAuthHeaders(),
+      credentials: 'include',
       body: JSON.stringify(body),
     });
     return res.ok;
@@ -111,7 +113,7 @@ export async function refineExecutionPlan(params: {
   try {
     const res = await fetch('/api/refine', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await apiAuthHeaders(),
       body: JSON.stringify(params),
       credentials: 'include',
     });
