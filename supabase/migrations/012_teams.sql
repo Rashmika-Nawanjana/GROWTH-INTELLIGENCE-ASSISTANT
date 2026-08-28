@@ -221,7 +221,7 @@ begin
     raise exception 'User email not found';
   end if;
 
-  v_hash := encode(digest(p_token, 'sha256'), 'hex');
+  v_hash := encode(digest(convert_to(p_token, 'UTF8'), 'sha256'), 'hex');
 
   select * into v_invite
   from team_invites
@@ -269,7 +269,7 @@ declare
   v_invite team_invites%rowtype;
   v_team_name text;
 begin
-  v_hash := encode(digest(p_token, 'sha256'), 'hex');
+  v_hash := encode(digest(convert_to(p_token, 'UTF8'), 'sha256'), 'hex');
 
   select * into v_invite
   from team_invites
