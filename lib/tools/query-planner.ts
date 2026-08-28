@@ -246,6 +246,22 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => Omit<Quer
     };
   },
 
+  'steal-strategy': (ctx) => {
+    const category = normalizeCategory(ctx);
+    return {
+      broad: `${ctx.product} competitive strategy history how it beat competitors`,
+      targeted: compactJoin([
+        `"${ctx.product}"`,
+        'pricing war OR bundling OR "land grab" OR platform shift OR distribution advantage',
+      ]),
+      hypothesis: `${ctx.product} growth playbook early days GTM tactics case study`,
+      keywords: [
+        'strategy', 'competitor', 'playbook', 'GTM', 'bundling', 'pricing', 'distribution',
+        ...category.split(/[\s/]+/).filter(t => t.length > 3),
+      ],
+    };
+  },
+
   'mirofish-live': (ctx) => {
     const { year, nextYear } = currentYears();
     const category = normalizeCategory(ctx);

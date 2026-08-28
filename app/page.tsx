@@ -11,7 +11,11 @@ import {
   ThumbsUp, ThumbsDown, BarChart3, Crosshair, Bookmark, Users,
 } from 'lucide-react';
 import { ApiUsagePanel } from '@/components/ApiUsagePanel';
-import { StealStrategyPanel } from '@/components/StealStrategyPanel';
+import {
+  StealStrategyPanel,
+  initialStealPanelState,
+  type StealPanelState,
+} from '@/components/StealStrategyPanel';
 import { WorkspacePanel } from '@/components/workspace/WorkspacePanel';
 import { SharedWorkspacePanel } from '@/components/workspace/SharedWorkspacePanel';
 import { AddToWorkspaceButton } from '@/components/workspace/AddToWorkspaceButton';
@@ -550,6 +554,11 @@ export default function VeracityDashboard() {
   }, []);
   /** Keys of artifacts already pinned to workspace this session (optimistic UI). */
   const [workspaceSavedKeys, setWorkspaceSavedKeys] = useState<Set<string>>(() => new Set());
+  /** Steal-strategy form + result, lifted so tab switches don't discard a run. */
+  const [stealState, setStealState] = useState<StealPanelState>(initialStealPanelState);
+  const patchStealState = useCallback((patch: Partial<StealPanelState>) => {
+    setStealState(prev => ({ ...prev, ...patch }));
+  }, []);
   /** Rolling totals for API Usage tab (reset on new query). */
   const [sessionUsage, setSessionUsage] = useState({
     queries: 0,
@@ -1653,7 +1662,14 @@ export default function VeracityDashboard() {
               />
             )}
 
-            {topTab === 'steal' && <StealStrategyPanel />}
+            {topTab === 'steal' && (
+              <StealStrategyPanel
+                state={stealState}
+                onChange={patchStealState}
+                savedKeys={workspaceSavedKeys}
+                onSaved={key => setWorkspaceSavedKeys(prev => new Set(prev).add(key))}
+              />
+            )}
 
             {topTab === 'workspace' && <WorkspacePanel />}
 

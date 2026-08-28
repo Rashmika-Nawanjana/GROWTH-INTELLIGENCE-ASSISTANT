@@ -1,20 +1,30 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, after } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
-import { generateHuggingFaceJson } from '@/lib/agents/gemini';
-import { publicJsonError } from '@/lib/api/errors';
+import { runStealStrategyAgent } from '@/lib/agents/steal-strategy';
+import { enrichRunMetrics } from '@/lib/observability/build-metrics';
+import { flushLangfuse, runWithLangfuseTrace } from '@/lib/observability/langfuse';
+import { runWithUsageLedger } from '@/lib/observability/usage-ledger';
+import { persistRunUsage } from '@/lib/observability/persist-run';
+import { toPublicError } from '@/lib/api/errors';
+import type { AgentRun, StealPlaybookOutput } from '@/lib/agents/types';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120;
 
-type StealStrategyResponse = {
-  summary: string;
-  historicalCompetitiveMoves: { move: string; context: string; effectOnRivals: string }[];
-  modernEntrantPlaybook: { analogy: string; applicationToday: string; exampleTactics: string[] }[];
-  guardrails: string;
-};
+type StealStreamChunk =
+  | { type: 'agent_update'; run: AgentRun }
+  | { type: 'result'; output: StealPlaybookOutput }
+  | { type: 'error'; message: string };
+
+function encode(chunk: StealStreamChunk): string {
+  return `data: ${JSON.stringify(chunk)}\n\n`;
+}
 
 function jsonError(message: string, status: number) {
-  return new Response(JSON.stringify({ error: message }), { status, headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -37,7 +47,7 @@ export async function POST(req: NextRequest) {
     return jsonError(formatZodError(parsed.error), 400);
   }
 
-  const { enforceUserQuotas, guardInput, logGuardrailEvent, guardOutput } = await import('@/lib/guardrails');
+  const { enforceUserQuotas, guardInput, logGuardrailEvent } = await import('@/lib/guardrails');
   const quota = await enforceUserQuotas(supabase, user.id, 'steal-strategy');
   if (!quota.allowed) {
     return jsonError(
@@ -48,57 +58,126 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Guard each field separately so the redacted value can be reused directly —
+  // no second pass needed.
   const companyVerdict = await guardInput(parsed.data.company);
-  const contextText = [parsed.data.newCompanyContext, parsed.data.market].filter(Boolean).join('\n');
-  const contextVerdict = contextText ? await guardInput(contextText) : null;
+  const newCoVerdict = parsed.data.newCompanyContext?.trim()
+    ? await guardInput(parsed.data.newCompanyContext)
+    : null;
+  const marketVerdict = parsed.data.market?.trim()
+    ? await guardInput(parsed.data.market)
+    : null;
 
-  if (companyVerdict.blocked || contextVerdict?.blocked) {
+  if (companyVerdict.blocked || newCoVerdict?.blocked || marketVerdict?.blocked) {
     await logGuardrailEvent(supabase, {
       userId: user.id,
       route: 'steal-strategy',
       risk: 'high',
       blocked: true,
-      findings: [...companyVerdict.findings, ...(contextVerdict?.findings ?? [])],
+      findings: [
+        ...companyVerdict.findings,
+        ...(newCoVerdict?.findings ?? []),
+        ...(marketVerdict?.findings ?? []),
+      ],
     });
     return jsonError('Request blocked by safety policy.', 400);
   }
 
-  const company = companyVerdict.redactedText;
-  const newCo = contextVerdict
-    ? (await guardInput(parsed.data.newCompanyContext ?? '')).redactedText
-    : (parsed.data.newCompanyContext ?? '').trim();
-  const market = (parsed.data.market ?? '').trim();
+  const company = companyVerdict.redactedText.trim();
+  const newCo = newCoVerdict?.redactedText.trim() ?? '';
+  const market = marketVerdict?.redactedText.trim() ?? '';
 
-  const system = `You are a business strategy analyst. Respond with valid JSON only, no markdown fences.
-This is a case-study style analysis of widely reported business history and competitive strategy — not instructions to break laws, harm competitors, or act unethically.
-Frame moves as "documented or commonly cited" where appropriate. If uncertain, say so.`;
+  const query = `How did ${company} compete against rivals in ${market || 'its market'}, and how would a new entrant apply those patterns today?`;
+  const startedAt = Date.now();
 
-  const userPrompt = `Company to analyse: ${company}
-${market ? `Market / category: ${market}\n` : ''}${newCo ? `New entrant or reader context: ${newCo}\n` : ''}
-Produce a JSON object with this exact shape:
-{
-  "summary": "2-3 sentences",
-  "historicalCompetitiveMoves": [ { "move": "", "context": "timeframe / product area", "effectOnRivals": "strategic effect on same-type competitors" } ],
-  "modernEntrantPlaybook": [ { "analogy": "which past pattern maps here", "applicationToday": "how a new company competes in the same type of market now (channels, product, GTM, data)", "exampleTactics": ["concrete, ethical levers"] } ],
-  "guardrails": "one paragraph: legal, ethical, and IP boundaries; this is education not a playbook to harm"
-}
-Include 3-5 items in each array. Use English.`;
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      let closed = false;
+      const send = (chunk: StealStreamChunk) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(encode(chunk)));
+        } catch {
+          closed = true;
+        }
+      };
 
-  try {
-    const data = await generateHuggingFaceJson<StealStrategyResponse>(system, userPrompt, {
-      maxNewTokens: 3500,
-      temperature: 0.25,
-      stage: 'steal-strategy',
-    });
-    if (!data.summary || !Array.isArray(data.historicalCompetitiveMoves)) {
-      return jsonError('Model returned an incomplete structure', 502);
-    }
-    const safeSummary = guardOutput(data.summary);
-    return new Response(
-      JSON.stringify({ ...data, summary: safeSummary.safeText }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } },
-    );
-  } catch (e) {
-    return publicJsonError(e, 'Strategy generation failed');
-  }
+      try {
+        const { result } = await runWithLangfuseTrace(
+          {
+            name: 'steal-strategy',
+            input: { company, market: market || undefined },
+            userId: user.id,
+            tags: ['steal-strategy', 'research'],
+            metadata: { company, market: market || undefined },
+            asType: 'span',
+          },
+          async () =>
+            runWithUsageLedger(
+              { userId: user.id, queryPreview: `Steal strategy: ${company}`.slice(0, 120) },
+              async () => {
+                const agentResult = await runStealStrategyAgent(
+                  {
+                    query,
+                    product: company,
+                    category: market || undefined,
+                    priorContext: newCo || undefined,
+                  },
+                  run => send({ type: 'agent_update', run }),
+                );
+
+                const metrics = enrichRunMetrics({
+                  totalLatencyMs: Date.now() - startedAt,
+                  agentLatencies: { 'steal-strategy': Date.now() - startedAt },
+                  estimatedCostUsd: 0,
+                  toolCallCount: agentResult.output.toolCallCount ?? 0,
+                  geminiCallCount: 1,
+                  agentCount: 1,
+                  completedAgentCount: 1,
+                  failedAgentCount: 0,
+                  searchCallCount: agentResult.output.searchCallCount,
+                  scrapeCallCount: agentResult.output.scrapeCallCount,
+                  safetyScore: agentResult.safetyScore,
+                  guardrailRisk: companyVerdict.risk,
+                });
+
+                await persistRunUsage(supabase, {
+                  userId: user.id,
+                  sessionId: 'steal-strategy',
+                  queryPreview: `Steal strategy: ${company}`,
+                  metrics,
+                }).catch(() => {});
+
+                return agentResult.output;
+              },
+            ),
+        );
+
+        send({ type: 'result', output: result });
+      } catch (e) {
+        send({
+          type: 'error',
+          message: toPublicError(e, 'Strategy generation failed').message,
+        });
+      } finally {
+        closed = true;
+        try {
+          controller.close();
+        } catch {
+          // already closed
+        }
+        after(async () => { await flushLangfuse(); });
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }

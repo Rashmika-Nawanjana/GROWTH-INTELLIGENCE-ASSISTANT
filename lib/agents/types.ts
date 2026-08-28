@@ -111,7 +111,8 @@ export type IntelligenceDomain =
   | 'adjacent'
   | 'execution-engine'
   | 'mirofish'
-  | 'mirofish-live';
+  | 'mirofish-live'
+  | 'steal-strategy';
 
 // ─── Artifact types (drives which component renders) ─────────────────────────
 export type ArtifactType =
@@ -124,7 +125,8 @@ export type ArtifactType =
   | 'mind-map'
   | 'scorecard'
   | 'execution-plan'
-  | 'forecast-chart';
+  | 'forecast-chart'
+  | 'steal-playbook';
 
 // ─── Domain-specific output shapes ───────────────────────────────────────────
 
@@ -222,6 +224,35 @@ export interface AdjacentOutput extends AgentOutput {
   overallRisk: 'high' | 'medium' | 'low';
   timeToImpact: string;    // e.g. "6-18 months"
   defensiveActions: string[];
+}
+
+// ─── Steal strategy (case-study playbook) ─────────────────────────────────────
+
+export interface HistoricalMove {
+  move: string;
+  context: string;           // timeframe / product area
+  effectOnRivals: string;
+  /** URLs from `sources` backing this move. */
+  sourceUrls: string[];
+}
+
+export interface EntrantPlay {
+  analogy: string;           // which past pattern maps here
+  applicationToday: string;
+  exampleTactics: string[];
+  /** URLs from `sources` backing this play. */
+  sourceUrls: string[];
+}
+
+export interface StealPlaybookOutput extends AgentOutput {
+  artifactType: 'steal-playbook';
+  /** Company that was analysed. */
+  company: string;
+  market?: string;
+  summary: string;
+  historicalCompetitiveMoves: HistoricalMove[];
+  modernEntrantPlaybook: EntrantPlay[];
+  guardrails: string;
 }
 
 // ─── Mind map output ─────────────────────────────────────────────────────────
