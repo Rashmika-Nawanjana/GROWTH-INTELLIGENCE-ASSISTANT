@@ -3,6 +3,7 @@ import type { ToolResult, ScrapedPage } from './types';
 import { buildToolResult } from './fallback';
 import { assessScrapeQuality } from './scrape-quality';
 import { getPolicyForDomain, computeRetryDelay } from './retry-policy';
+import { isPlaywrightScrapeEnabled, scrapeWithPlaywright } from './playwright-scrape';
 
 const BASE_URL = 'https://api.firecrawl.dev/v1';
 
@@ -95,15 +96,31 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
     attemptsMade++;
   }
 
+  let usedPlaywright = false;
+  if (
+    !result &&
+    policy.useBrowserFallback &&
+    isPlaywrightScrapeEnabled() &&
+    attemptsMade < policy.maxAttempts
+  ) {
+    await delay(computeRetryDelay(policy, attemptsMade));
+    const pw = await scrapeWithPlaywright(url);
+    attemptsMade++;
+    if (pw) {
+      result = { markdown: pw.markdown, title: pw.title };
+      usedPlaywright = true;
+    }
+  }
+
   if (!result && attemptsMade < policy.maxAttempts) {
-    // Attempt 3: Scrape.do (free tier — anti-bot, proxy rotation, optional JS render)
+    // Scrape.do (free tier — anti-bot, proxy rotation, optional JS render)
     await delay(computeRetryDelay(policy, attemptsMade));
     result = await scrapeDoFetch(url);
     attemptsMade++;
   }
 
   if (!result && attemptsMade < policy.maxAttempts) {
-    // Attempt 4: Smart direct fetch (rotating UA, realistic headers, structured extraction)
+    // Smart direct fetch (rotating UA, realistic headers, structured extraction)
     await delay(computeRetryDelay(policy, attemptsMade));
     result = await smartDirectFetch(url);
     attemptsMade++;
@@ -128,6 +145,7 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
   // Determine status based on quality + attempts
   let status: 'ok' | 'degraded' | 'failed' = 'ok';
   let confidence = 0.85;
+  let sourceLabel = 'Firecrawl';
 
   if (!markdown || markdown.trim().length === 0) {
     status = 'failed';
@@ -138,6 +156,10 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
   } else if (!quality.isValid) {
     status = 'degraded';
     confidence = quality.qualityScore * 0.7; // cap degraded at ~0.7
+  } else if (usedPlaywright) {
+    status = 'degraded';
+    confidence = 0.75;
+    sourceLabel = 'Playwright';
   } else if (attemptsMade > 1) {
     status = 'degraded';
     confidence = 0.7; // fallback used but content ok
@@ -146,7 +168,7 @@ export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> 
   const result_final = buildToolResult<ScrapedPage>({
     data: page,
     status,
-    source: 'Firecrawl',
+    source: sourceLabel,
     sourceUrl: url,
     confidenceOverride: confidence,
   });
@@ -296,6 +318,26 @@ async function smartDirectFetch(url: string): Promise<{ markdown: string; title:
 }
 
 async function scrapeBasic(url: string): Promise<ToolResult<ScrapedPage>> {
+  const policy = getPolicyForDomain(url);
+
+  if (policy.useBrowserFallback && isPlaywrightScrapeEnabled()) {
+    const pw = await scrapeWithPlaywright(url);
+    if (pw) {
+      const page: ScrapedPage = {
+        url,
+        title: pw.title,
+        markdown: pw.markdown,
+        excerpt: pw.markdown.slice(0, 500),
+      };
+      return buildToolResult<ScrapedPage>({
+        data: page,
+        status: 'degraded',
+        source: 'Playwright (no Firecrawl key)',
+        sourceUrl: url,
+      });
+    }
+  }
+
   // Try Scrape.do first (if token available), then smart direct fetch
   const scrapeDo = await scrapeDoFetch(url);
   if (scrapeDo) {

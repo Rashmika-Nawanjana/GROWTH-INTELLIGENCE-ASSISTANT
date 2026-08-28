@@ -706,4 +706,10 @@ Then generalise to a second product to prove the system is not hard-coded to Vec
 
 ---
 
+## LangChain / LangGraph (optional)
+
+Orchestration defaults to the legacy TypeScript pipeline. Set `ORCHESTRATOR_BACKEND=langgraph` to use a LangGraph.js graph that wraps the same `agent.run` functions. LLM calls go through `lib/llm` (Gemini Developer API or Vertex via `LLM_PROVIDER`). See [docs/LANGGRAPH_MIGRATION.md](docs/LANGGRAPH_MIGRATION.md) for flags, rollback, and QA.
+
+---
+
 *Generated as an onboarding / pre-coding architecture reference for this repository. For UI patterns and design tokens, prefer `CLAUDE.md`. For product narrative and setup, see `README.md`.*

@@ -12,6 +12,7 @@ import { MindMap } from './MindMap';
 import { ExecutionPlan } from './ExecutionPlan';
 import { ForecastChart } from './ForecastChart';
 import { EmptyArtifact } from './EmptyArtifact';
+import { InsufficientEvidence } from './InsufficientEvidence';
 
 interface Props {
   output: AgentOutput;
@@ -38,6 +39,10 @@ function withArrayDefaults<T extends Record<string, any>>(output: T, fields: (ke
 
 export function ArtifactRenderer({ output, product, sessionId, messageId, onRefined }: Props) {
   if (!output) return <EmptyArtifact label="Artifact" reason="No agent output to render." />;
+
+  if (output.evidence?.status === 'insufficient') {
+    return <InsufficientEvidence output={output} />;
+  }
 
   switch (output.artifactType) {
     case 'trend-chart': {

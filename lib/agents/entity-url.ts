@@ -35,6 +35,11 @@ const PLACEHOLDER_COMPETITOR = new Set([
   'none',
   'your competitor',
   'the competitor',
+  'relevant competitors',
+  'relevant competitor',
+  'top competitors',
+  'competitors',
+  'peer products',
 ]);
 
 const PLACEHOLDER_PRODUCT = new Set([

@@ -138,11 +138,24 @@ export function isValidSourceUrl(url: string | undefined | null): boolean {
 /**
  * Check if a source URL belongs to a known trusted domain.
  * Trusted sources get priority when deduplicating and sorting.
+ *
+ * Review-site hubs (g2.com, capterra.com) are only boosted when
+ * `preferReviewSites` is true — otherwise they inflate rankings for
+ * geo-specific queries with irrelevant category pages.
  */
-export function isTrustedSource(url: string): boolean {
+export function isTrustedSource(
+  url: string,
+  options: { preferReviewSites?: boolean } = {},
+): boolean {
   try {
     const hostname = new URL(url).hostname.replace(/^www\./, '');
-    return TRUSTED_DOMAINS.some(d => hostname === d || hostname.endsWith(`.${d}`));
+    const reviewSites = ['g2.com', 'capterra.com', 'trustradius.com'];
+    const preferReview = options.preferReviewSites !== false;
+
+    return TRUSTED_DOMAINS.some(d => {
+      if (!preferReview && reviewSites.includes(d)) return false;
+      return hostname === d || hostname.endsWith(`.${d}`);
+    });
   } catch {
     return false;
   }
@@ -185,10 +198,14 @@ function cleanSourceTitle(title: string, url: string): string {
  * 3. Prioritises trusted domains
  * 4. Cleans titles
  * 5. Caps to `limit` results
+ *
+ * Pass `preferReviewSites: false` when geography constraints mean G2/Capterra
+ * category hubs are more noise than signal.
  */
 export function filterAndRankSources(
   sources: AgentSource[],
   limit = 12,
+  options: { preferReviewSites?: boolean } = {},
 ): AgentSource[] {
   const seen = new Set<string>();
   const valid: (AgentSource & { _trusted: boolean })[] = [];
@@ -212,7 +229,7 @@ export function filterAndRankSources(
     valid.push({
       ...s,
       title: cleanSourceTitle(s.title, s.url),
-      _trusted: isTrustedSource(s.url),
+      _trusted: isTrustedSource(s.url, options),
     });
   }
 
@@ -230,11 +247,11 @@ export function filterAndRankSources(
  * Lightweight version for frontend: filter an array of { title, url } links.
  */
 export function filterDisplaySources(
-  sources: { title: string; url: string }[],
+  sources: { title: string; url: string; citationId?: number }[],
   limit = 12,
-): { title: string; url: string }[] {
+): { title: string; url: string; citationId?: number }[] {
   const seen = new Set<string>();
-  const valid: { title: string; url: string; trusted: boolean }[] = [];
+  const valid: { title: string; url: string; citationId?: number; trusted: boolean }[] = [];
 
   for (const s of sources) {
     if (!isValidSourceUrl(s.url)) continue;
@@ -254,6 +271,7 @@ export function filterDisplaySources(
     valid.push({
       title: cleanSourceTitle(s.title, s.url),
       url: s.url,
+      citationId: s.citationId,
       trusted: isTrustedSource(s.url),
     });
   }

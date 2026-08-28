@@ -1,0 +1,17 @@
+# Local SearXNG for discovery search (JSON API enabled).
+# Usage:
+#   docker compose -f docker-compose.searxng.yml up -d
+#   curl "http://127.0.0.1:8080/search?q=test&format=json"
+# Then set SEARXNG_BASE_URL=http://127.0.0.1:8080 in .env.local
+
+services:
+  searxng:
+    image: searxng/searxng:latest
+    container_name: growth-searxng
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://127.0.0.1:8080/
+    restart: unless-stopped

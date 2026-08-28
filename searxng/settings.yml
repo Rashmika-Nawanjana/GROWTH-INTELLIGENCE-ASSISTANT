@@ -1,0 +1,25 @@
+# Minimal SearXNG settings for this project.
+# `json` must be listed under search.formats or /search?format=json returns 403.
+use_default_settings: true
+
+general:
+  instance_name: "Growth Intelligence SearXNG"
+  debug: false
+
+search:
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en"
+  formats:
+    - html
+    - json
+
+server:
+  # Override in production; local-only default is fine for Docker on localhost.
+  secret_key: "growth-intelligence-searxng-change-me"
+  limiter: false
+  image_proxy: false
+  method: "GET"
+
+ui:
+  static_use_hash: true

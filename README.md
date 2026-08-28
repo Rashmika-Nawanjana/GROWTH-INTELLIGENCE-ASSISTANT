@@ -4,7 +4,7 @@
 
 A conversational growth-intelligence platform. Ask a market question; specialist agents fan out in parallel, pull **live** web signals, and render findings as charts, matrices, and campaign plans **inside the chat** — not as a text dump.
 
-[Architecture](ARCHITECTURE.md) · [GitHub](https://github.com/Rashmika-Nawanjana/GROWTH-INTELLIGENCE-ASSISTANT)
+[Architecture](ARCHITECTURE.md) · [Interview prep](INTERVIEW_PREP.md) · [LangGraph migration](docs/LANGGRAPH_MIGRATION.md) · [SearXNG / Playwright](docs/SEARXNG.md) · [GitHub](https://github.com/Rashmika-Nawanjana/GROWTH-INTELLIGENCE-ASSISTANT)
 
 ---
 

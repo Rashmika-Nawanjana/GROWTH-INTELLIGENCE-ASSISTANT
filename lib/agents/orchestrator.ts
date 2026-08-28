@@ -10,6 +10,18 @@ import { mirofishLiveAgent } from './mirofish-live';
 import { detectExecutionIntent } from './execution-intent';
 import { generateHuggingFaceText } from './gemini';
 import { filterAndRankSources } from '@/lib/tools/source-validator';
+import {
+  applyPlanToContext,
+  buildResearchPlan,
+  shouldSkipDomainLlm,
+  type ResearchPlan,
+} from './research-plan';
+import { insufficientOutput } from './skipped-output';
+import {
+  buildCitationIndex,
+  formatCitationsForPrompt,
+  stripUnknownCitations,
+} from './citations';
 import type {
   AgentConfig,
   AgentContext,
@@ -24,6 +36,9 @@ import type {
   ImageAttachment,
   MindMapOutput,
   MindMapNode,
+  GeographyContext,
+  CitationEntry,
+  EvidenceCandidate,
 } from './types';
 import { scoreToLevel } from './types';
 
@@ -34,7 +49,7 @@ const EST_INPUT_TOKENS_PER_CALL = 2000;
 const EST_OUTPUT_TOKENS_PER_CALL = 1000;
 const COST_PER_INPUT_TOKEN = 0.10 / 1_000_000;
 const COST_PER_OUTPUT_TOKEN = 0.40 / 1_000_000;
-const EST_COST_PER_MODEL_CALL =
+export const EST_COST_PER_MODEL_CALL =
   EST_INPUT_TOKENS_PER_CALL * COST_PER_INPUT_TOKEN +
   EST_OUTPUT_TOKENS_PER_CALL * COST_PER_OUTPUT_TOKEN;
 
@@ -43,7 +58,7 @@ const EST_COST_PER_MODEL_CALL =
 // so that one env change switches every agent at once.
 
 // ── All registered domain agents (6 fast Stage-1 agents) ────────────────────
-const ALL_AGENTS: AgentConfig[] = [
+export const ALL_AGENTS: AgentConfig[] = [
   marketTrendsAgent,
   competitiveAgent,
   winLossAgent,
@@ -55,7 +70,7 @@ const ALL_AGENTS: AgentConfig[] = [
 // (see runMirofishAgent below)
 
 // ── Query classifier ──────────────────────────────────────────────────────────
-interface ClassificationResult {
+export interface ClassificationResult {
   product: string;
   competitor?: string;
   productUrl?: string;
@@ -63,6 +78,10 @@ interface ClassificationResult {
   domains: IntelligenceDomain[];
   intent: string;
   runExecution: boolean;  // true when query is execution-intent (write copy, outreach, variants, brief)
+  geography?: GeographyContext;
+  category?: string;
+  namedEntities?: string[];
+  requiredTerms?: string[];
 }
 
 const VALID_DOMAINS: IntelligenceDomain[] = [
@@ -74,7 +93,7 @@ const VALID_DOMAINS: IntelligenceDomain[] = [
   'adjacent',
 ];
 
-interface OrchestrateOptions {
+export interface OrchestrateOptions {
   injectedContext?: string; // extra context injected into agents and synthesizer (e.g. feedback loop)
   forceExecution?: boolean; // force stage-2 execution even when classifier says false
   followUpMode?: 'full' | 'targeted'; // targeted runs only classifier-selected research domains
@@ -83,7 +102,7 @@ interface OrchestrateOptions {
   onOrchestrationLog?: (message: string) => void;
 }
 
-async function classifyQuery(
+export async function classifyQuery(
   query: string,
   history: ConversationMessage[],
   images: ImageAttachment[] = [],
@@ -110,8 +129,22 @@ Respond with JSON:
   "competitorUrl": string | null,
   "domains": string[],       // Which intelligence domains to activate. Options: market-trends, competitive, win-loss, pricing, positioning, adjacent
   "intent": string,          // One-line description of what the user wants to know
-  "runExecution": boolean    // true if the query is execution-intent (write copy, draft outreach, campaign brief, cold email, LinkedIn post, variants, one-pager, positioning guide, outreach sequence)
+  "runExecution": boolean,   // true if the query is execution-intent (write copy, draft outreach, campaign brief, cold email, LinkedIn post, variants, one-pager, positioning guide, outreach sequence)
+  "geography": { "name": string, "countryCode": string | null, "hl": string | null } | null,
+  "category": string | null, // market category e.g. "agritech / AI in agriculture", "AI SDR"
+  "namedEntities": string[], // every named product/org/company in the query (even unfamiliar ones)
+  "requiredTerms": string[]  // 3-8 terms a relevant source must relate to (geo, category, product names)
 }
+
+Geography rules (CRITICAL):
+- Any place, region, country, or city in the query MUST be returned in geography.name
+- countryCode: ISO 3166-1 alpha-2 lowercase when known (Sri Lanka→lk, India→in, US→us, UK→gb)
+- hl: language hint (usually "en")
+- If no geography is mentioned, set geography to null
+
+Named entity rules:
+- Include every proper noun org/product in namedEntities even if you do not recognise it
+- Do NOT invent entities that are not in the query or conversation history
 
 Domain selection rules:
 - "vs", "compare", "competitive" → include competitive, win-loss, positioning
@@ -153,6 +186,12 @@ Set runExecution: false for pure research questions ("compare X vs Y", "what is 
       domains: normalizeDomains(parsed.domains),
       intent: (parsed.intent as string) ?? query,
       runExecution: ((parsed.runExecution as boolean) ?? false) || regexExecution,
+      geography: normalizeGeography(parsed.geography),
+      category: typeof parsed.category === 'string' && parsed.category.trim()
+        ? parsed.category.trim()
+        : undefined,
+      namedEntities: normalizeStringArray(parsed.namedEntities),
+      requiredTerms: normalizeStringArray(parsed.requiredTerms),
     };
   } catch {
     // Fallback: activate all domains. Honour the regex execution check even
@@ -202,13 +241,38 @@ function normalizeDomains(rawDomains: unknown): IntelligenceDomain[] {
   return merged.slice(0, 6) as IntelligenceDomain[];
 }
 
+function normalizeStringArray(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const items = raw
+    .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+    .map(t => t.trim());
+  return items.length > 0 ? [...new Set(items)] : undefined;
+}
+
+function normalizeGeography(raw: unknown): GeographyContext | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const obj = raw as Record<string, unknown>;
+  const name = typeof obj.name === 'string' ? obj.name.trim() : '';
+  if (!name) return undefined;
+  const countryCode =
+    typeof obj.countryCode === 'string' && obj.countryCode.trim()
+      ? obj.countryCode.trim().toLowerCase()
+      : undefined;
+  const hl =
+    typeof obj.hl === 'string' && obj.hl.trim()
+      ? obj.hl.trim().toLowerCase()
+      : undefined;
+  return { name, countryCode, hl };
+}
+
 // ── Synthesizer — merges all agent outputs into a final answer ────────────────
-async function synthesize(
+export async function synthesize(
   query: string,
   outputs: AgentOutput[],
   history: ConversationMessage[],
   images: ImageAttachment[] = [],
   memoryContext?: string,
+  citations: CitationEntry[] = [],
 ): Promise<{ answer: string; recommendations: Recommendation[]; followUps: string[] }> {
   const priorSummary = history
     .slice(-4)
@@ -221,7 +285,21 @@ async function synthesize(
     confidence: o.confidence,
     facts: o.facts.slice(0, 4),
     interpretation: o.interpretation.slice(0, 3),
+    evidenceStatus: o.evidence?.status,
+    evidenceGaps: o.evidence?.gaps?.slice(0, 3),
+    searchedFor: o.evidence?.searchedFor?.slice(0, 4),
   }));
+
+  const insufficientDomains = outputs.filter(o => o.evidence?.status === 'insufficient');
+  const evidenceBlock = insufficientDomains.length > 0
+    ? `\nEvidence gaps (DO NOT invent or fill these with unrelated global data):\n${insufficientDomains
+        .map(o => `- ${o.domain}: ${o.evidence?.gaps?.join('; ') || 'insufficient local evidence'} (searched: ${(o.evidence?.searchedFor ?? []).slice(0, 3).join(' | ')})`)
+        .join('\n')}\n`
+    : '';
+
+  const citationBlock = citations.length > 0
+    ? `\nNumbered sources (cite as [n] inline):\n${formatCitationsForPrompt(citations)}\n`
+    : '';
 
   const prompt = `You are the synthesis layer of a multi-agent growth intelligence system. Your job is to produce a clean, direct, well-written answer.
 
@@ -229,18 +307,20 @@ Original query: "${query}"
 ${memoryContext ? `${memoryContext}\n` : ''}${priorSummary ? `Prior conversation context:\n${priorSummary}\n` : ''}
 Agent findings from ${outputs.length} specialist agents:
 ${JSON.stringify(outputSummaries, null, 2)}
-
+${evidenceBlock}${citationBlock}
 Rules:
 1. If the query asks a FACTUAL question (revenue, funding amount, year founded, etc.), lead with the direct answer in the first sentence.
-2. Write in clean prose — no raw tool labels like [WEB], [NEWS], [REDDIT]. Never output bracket prefixes.
+2. Write in clean prose — no raw tool labels like [WEB], [NEWS], [REDDIT]. Never output bracket prefixes except numbered citations [1], [2].
 3. Reference insights by domain only when relevant (e.g. "Competitive data shows...").
 4. Be specific and concrete — cite actual company names, numbers, trends from the findings.
-5. Keep the "answer" field under 180 words. Make it readable and insightful.
-6. Only include recommendations if directly actionable from the findings. 2-3 max.
+5. Every concrete claim (number, company name, pricing point) MUST carry an inline citation [n] matching the numbered sources list. Drop claims you cannot cite.
+6. Keep the "answer" field under 180 words. Make it readable and insightful.
+7. Only include recommendations if directly actionable from the findings. 2-3 max.
+8. When a domain has evidenceStatus "insufficient", NAME THE GAP explicitly and recommend next research steps. Never substitute generic industry stats, unrelated vendor pricing (Figma, Salesforce), or global listicles for missing local evidence.
 
 Return ONLY valid JSON (no markdown, no fences):
 {
-  "answer": "string — direct, clean prose answer. Start with the most important finding. No raw tool labels.",
+  "answer": "string — direct, clean prose answer with [n] citations. Start with the most important finding. No raw tool labels.",
   "recommendations": [
     {
       "title": "string — short action title",
@@ -262,8 +342,10 @@ Return ONLY valid JSON (no markdown, no fences):
       temperature: 0.2,
     });
     const parsed = safeParseJson(raw);
+    const answerRaw = (parsed.answer as string) || buildFallbackAnswer(outputs, query);
+    const answer = stripUnknownCitations(answerRaw, citations.length);
     return {
-      answer: (parsed.answer as string) || buildFallbackAnswer(outputs, query),
+      answer,
       recommendations: (parsed.recommendations as Recommendation[]) ?? [],
       followUps: (parsed.followUps as string[]) ?? [],
     };
@@ -292,7 +374,7 @@ function buildFallbackAnswer(outputs: AgentOutput[], query: string): string {
 }
 
 // ── Mind map generator — builds a visual tree from all agent outputs ─────────
-async function generateMindMap(
+export async function generateMindMap(
   query: string,
   product: string,
   outputs: AgentOutput[],
@@ -426,7 +508,7 @@ export async function orchestrate(
     .filter(Boolean)
     .join('\n\n') || undefined;
 
-  const agentContext: AgentContext = {
+  const agentContextBase: AgentContext = {
     query: intent,
     product,
     competitor,
@@ -435,6 +517,62 @@ export async function orchestrate(
     priorContext: combinedPriorContext || undefined,
     images: images.length > 0 ? images : undefined,
     memoryContext: memoryContext || undefined,
+    geography: classification.geography,
+    category: classification.category,
+    namedEntities: classification.namedEntities,
+    requiredTerms: classification.requiredTerms,
+  };
+
+  // Step 1b: Shared discovery + research planner (1 model call, budgeted)
+  const plannerRun: AgentRun = {
+    agentId: 'research-planner',
+    name: 'Research Planner',
+    status: 'running',
+    startedAt: new Date().toISOString(),
+  };
+  onAgentUpdate?.(plannerRun);
+  const plannerStart = Date.now();
+  let plan: ResearchPlan;
+  try {
+    plan = await buildResearchPlan(agentContextBase, {
+      budgetMs: 12_000,
+      onLog: log,
+    });
+    modelCallCount += 1;
+    plannerRun.status = 'completed';
+    plannerRun.completedAt = new Date().toISOString();
+  } catch (err) {
+    plan = {
+      localEntities: [],
+      perDomainQueries: {},
+      gapQueries: [],
+      applicableDomains: ['market-trends', 'competitive', 'win-loss', 'pricing', 'positioning', 'adjacent'],
+      notes: ['Research planner failed; using template queries.'],
+      searchedFor: [],
+      scrapedCount: 0,
+      searchCallCount: 0,
+    };
+    plannerRun.status = 'failed';
+    plannerRun.completedAt = new Date().toISOString();
+    plannerRun.error = err instanceof Error ? err.message : String(err);
+  }
+  onAgentUpdate?.(plannerRun);
+
+  // Merge discovered entities into base context
+  const entityNames = plan.localEntities.map(e => e.name);
+  const agentContext: AgentContext = {
+    ...agentContextBase,
+    namedEntities: [...new Set([...(agentContextBase.namedEntities ?? []), ...entityNames])],
+    requiredTerms: [
+      ...new Set([
+        ...(agentContextBase.requiredTerms ?? []),
+        ...entityNames,
+        ...(classification.geography?.name ? [classification.geography.name] : []),
+      ]),
+    ],
+    discoveredEntities: plan.localEntities,
+    gapQueries: plan.gapQueries,
+    planNotes: plan.notes,
   };
 
   // Step 2: Select research agents.
@@ -450,32 +588,97 @@ export async function orchestrate(
   log?.(`Dividing work across ${agentsToRun.length} specialist agents (${sweepLabel})…`);
   log?.('Orchestrating parallel research — search, fetch, and extract…');
 
-  // Initialise agent run tracking
-  const agentRuns: AgentRun[] = agentsToRun.map(a => ({
-    agentId: a.id,
-    name: a.name,
-    status: 'pending',
+  // Initialise agent run tracking (planner first, then specialists)
+  const agentRuns: AgentRun[] = [
+    plannerRun,
+    ...agentsToRun.map(a => ({
+      agentId: a.id,
+      name: a.name,
+      status: 'pending' as const,
+    })),
+  ];
+
+  const planCandidates: EvidenceCandidate[] = plan.localEntities.map(e => ({
+    name: e.name,
+    url: e.url,
+    classification:
+      e.type === 'government'
+        ? 'government'
+        : e.type === 'research'
+          ? 'research'
+          : e.type === 'vendor'
+            ? 'potential'
+            : 'global',
   }));
 
-  // Step 3: Fan-out — all selected agents run in parallel
-  const agentLatencies: Record<string, number> = {};
+  // Step 3: Fan-out — skip LLM for entity-dependent domains with no local entities
+  const agentLatencies: Record<string, number> = {
+    'research-planner': Date.now() - plannerStart,
+  };
+  let skippedLlmCount = 0;
+
+  const specialistRuns = agentRuns.slice(1);
   const agentPromises = agentsToRun.map(async (agent, i): Promise<AgentOutput | null> => {
-    // Mark as running
     const agentStart = Date.now();
-    agentRuns[i] = { ...agentRuns[i], status: 'running', startedAt: new Date().toISOString() };
-    onAgentUpdate?.(agentRuns[i]);
+    specialistRuns[i] = {
+      ...specialistRuns[i],
+      status: 'running',
+      startedAt: new Date().toISOString(),
+    };
+    agentRuns[i + 1] = specialistRuns[i];
+    onAgentUpdate?.(specialistRuns[i]);
 
     try {
-      const output = await agent.run(agentContext);
+      if (
+        shouldSkipDomainLlm(
+          agent.id as IntelligenceDomain,
+          plan,
+          classification.geography,
+          product,
+        )
+      ) {
+        skippedLlmCount += 1;
+        const output = insufficientOutput({
+          domain: agent.id as IntelligenceDomain,
+          searchedFor: plan.searchedFor,
+          gaps: plan.notes,
+          candidates: planCandidates,
+          geographyName: classification.geography?.name,
+          category: classification.category,
+        });
+        agentLatencies[agent.id] = Date.now() - agentStart;
+        specialistRuns[i] = {
+          ...specialistRuns[i],
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+        };
+        agentRuns[i + 1] = specialistRuns[i];
+        onAgentUpdate?.(specialistRuns[i]);
+        return output;
+      }
+
+      const domainCtx = applyPlanToContext(agentContext, plan, agent.id as IntelligenceDomain);
+      const output = await agent.run(domainCtx);
       agentLatencies[agent.id] = Date.now() - agentStart;
-      agentRuns[i] = { ...agentRuns[i], status: 'completed', completedAt: new Date().toISOString() };
-      onAgentUpdate?.(agentRuns[i]);
+      specialistRuns[i] = {
+        ...specialistRuns[i],
+        status: 'completed',
+        completedAt: new Date().toISOString(),
+      };
+      agentRuns[i + 1] = specialistRuns[i];
+      onAgentUpdate?.(specialistRuns[i]);
       return output;
     } catch (err) {
       agentLatencies[agent.id] = Date.now() - agentStart;
       const error = err instanceof Error ? err.message : String(err);
-      agentRuns[i] = { ...agentRuns[i], status: 'failed', completedAt: new Date().toISOString(), error };
-      onAgentUpdate?.(agentRuns[i]);
+      specialistRuns[i] = {
+        ...specialistRuns[i],
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+        error,
+      };
+      agentRuns[i + 1] = specialistRuns[i];
+      onAgentUpdate?.(specialistRuns[i]);
       return null;
     }
   });
@@ -487,8 +690,8 @@ export async function orchestrate(
     )
     .map(r => r.value as AgentOutput);
 
-  // Each research agent makes ~1 model call
-  modelCallCount += agentsToRun.length;
+  // Model calls only for agents that actually ran LLM synthesis
+  modelCallCount += agentsToRun.length - skippedLlmCount;
 
   // ── Stage 2: Execution Engine (only if execution intent detected) ──────────
   if (shouldRunExecution) {
@@ -521,10 +724,15 @@ export async function orchestrate(
     onAgentUpdate?.(execRun);
   }
 
-  // Step 4: Synthesise + generate mind map in parallel (2 model calls)
+  // Step 4: Rank sources, assign citations, then synthesise + mind map
   log?.('Reasoning over findings — synthesizing answer and strategic mind map…');
+  const preferReviewSites = !classification.geography;
+  for (const output of outputs) {
+    output.sources = filterAndRankSources(output.sources, 8, { preferReviewSites });
+  }
+  const citations = buildCitationIndex(outputs);
   const [synthesisResult, mindMapResult] = await Promise.all([
-    synthesize(query, outputs, history, images, synthesisMemoryContext),
+    synthesize(query, outputs, history, images, synthesisMemoryContext, citations),
     generateMindMap(query, product, outputs),
   ]);
   modelCallCount += 2; // synthesis + mind map
@@ -535,10 +743,7 @@ export async function orchestrate(
     outputs.push(mindMapResult);
   }
 
-  // Step 5: Filter & rank sources across all agent outputs
-  for (const output of outputs) {
-    output.sources = filterAndRankSources(output.sources, 8);
-  }
+  const finalCitations = citations;
 
   // Step 6: Compute overall confidence
   const avgConfidence = outputs.length > 0
@@ -547,12 +752,21 @@ export async function orchestrate(
   const totalConfidence: ConfidenceLevel = scoreToLevel(avgConfidence);
 
   // Step 7: Build run metrics
-  // Tool call count: each successful agent typically makes 2-4 tool calls.
-  // We estimate based on completed agents (a rough heuristic — agents don't
-  // currently report exact tool call counts back).
   const completedAgents = agentRuns.filter(r => r.status === 'completed').length;
   const failedAgents = agentRuns.filter(r => r.status === 'failed').length;
-  const toolCallCount = completedAgents * 3; // conservative average
+  const toolCallCount = outputs.reduce((sum, o) => sum + (o.toolCallCount ?? 0), 0)
+    + plan.searchCallCount + plan.scrapedCount
+    || completedAgents * 3;
+  const searchCallCount =
+    plan.searchCallCount +
+    outputs.reduce((sum, o) => sum + (o.searchCallCount ?? 0), 0);
+  const scrapeCallCount =
+    plan.scrapedCount +
+    outputs.reduce((sum, o) => sum + (o.scrapeCallCount ?? 0), 0);
+  const droppedIrrelevantCount = outputs.reduce(
+    (sum, o) => sum + (o.droppedIrrelevantCount ?? 0),
+    0,
+  );
 
   const metrics: RunMetrics = {
     totalLatencyMs: Date.now() - orchestrationStart,
@@ -563,6 +777,10 @@ export async function orchestrate(
     agentCount: agentRuns.length,
     completedAgentCount: completedAgents,
     failedAgentCount: failedAgents,
+    searchCallCount,
+    scrapeCallCount,
+    droppedIrrelevantCount,
+    localEntityCount: plan.localEntities.length,
   };
 
   return {
@@ -577,6 +795,7 @@ export async function orchestrate(
     totalConfidence,
     generatedAt: new Date().toISOString(),
     metrics,
+    citations: finalCitations,
   };
 }
 

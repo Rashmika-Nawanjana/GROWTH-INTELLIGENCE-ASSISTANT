@@ -51,7 +51,7 @@ function indexMessageInBackground(sessionId: string, role: 'user' | 'assistant',
 }
 
 /* ─── Types ─────────────────────────────────────────────── */
-type SourceLink   = { title: string; url: string };
+type SourceLink   = { title: string; url: string; citationId?: number };
 type AttachedImage = { dataUrl: string; data: string; mimeType: string; name: string };
 type LiveRunMetrics = {
   elapsedMs: number;
@@ -759,7 +759,7 @@ export default function VeracityDashboard() {
                     confidence: r.confidence, evidence: r.evidence, priority: r.priority,
                   })),
                   sources: filterDisplaySources(
-                    out.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? []) ?? [],
+                    out.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url, citationId: s.citationId })) ?? []) ?? [],
                     12,
                   ),
                   suggestions: out.suggestedFollowUps?.slice(0, 3),
@@ -887,7 +887,7 @@ export default function VeracityDashboard() {
 
       if (finalOutput) {
         const sources = filterDisplaySources(
-          finalOutput.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? []) ?? [],
+          finalOutput.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url, citationId: s.citationId })) ?? []) ?? [],
           12,
         );
 
@@ -1000,7 +1000,7 @@ export default function VeracityDashboard() {
                 setSessionUsage(prev => ({ ...prev, queries: prev.queries + 1 }));
               }
               const sources = filterDisplaySources(
-                out.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url })) ?? []) ?? [],
+                out.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url, citationId: s.citationId })) ?? []) ?? [],
                 6,
               );
               setFollowUps(prev => prev.map(f =>
@@ -1082,7 +1082,7 @@ export default function VeracityDashboard() {
     {
       id: 'planning',
       label: 'Orchestrating',
-      state: runDone || hasLine('dividing work across') || hasLine('orchestrating parallel research') ? 'completed' : hasLine('starting orchestration') ? 'running' : 'pending',
+      state: runDone || hasLine('dividing work across') || hasLine('orchestrating parallel research') || hasLine('discovering local players') || hasLine('planner locked') || hasLine('planner found no local') ? 'completed' : hasLine('starting orchestration') || hasLine('discovering local') ? 'running' : 'pending',
     },
     {
       id: 'research',
@@ -1810,6 +1810,9 @@ export default function VeracityDashboard() {
                       const agentDone = final?.completedAgentCount ?? live?.completedAgentCount ?? 0;
                       const geminiCalls = final?.geminiCallCount ?? live?.geminiCallCount ?? 0;
                       const toolCalls = final?.toolCallCount ?? live?.toolCallCount ?? 0;
+                      const searchCalls = final?.searchCallCount;
+                      const scrapeCalls = final?.scrapeCallCount;
+                      const localEntities = final?.localEntityCount;
                       const isLive = !final && !!live;
                       return (
                         <span className="text-[10px] font-mono px-2 py-0.5 rounded flex items-center gap-2"
@@ -1824,6 +1827,18 @@ export default function VeracityDashboard() {
                           <span title="Model calls">{isLive ? `~${geminiCalls}` : geminiCalls} calls</span>
                           <span style={{ opacity: 0.3 }}>|</span>
                           <span title="External tool invocations">{isLive ? `~${toolCalls}` : toolCalls} tools</span>
+                          {typeof searchCalls === 'number' && typeof scrapeCalls === 'number' && (
+                            <>
+                              <span style={{ opacity: 0.3 }}>|</span>
+                              <span title="Search vs scrape ratio">{searchCalls} search / {scrapeCalls} scrape</span>
+                            </>
+                          )}
+                          {typeof localEntities === 'number' && (
+                            <>
+                              <span style={{ opacity: 0.3 }}>|</span>
+                              <span title="Local entities from research planner">{localEntities} local</span>
+                            </>
+                          )}
                         </span>
                       );
                     })()}
@@ -2025,13 +2040,20 @@ export default function VeracityDashboard() {
                     <div className="flex items-start gap-3 pt-4" style={{ borderTop: `1px solid ${borderC}` }}>
                       <span className="text-[10px] font-mono font-semibold uppercase tracking-widest shrink-0 mt-1" style={{ color: textSubtle }}>sources</span>
                       <div className="flex flex-wrap gap-1.5">
-                        {currentResult.sources.map(source => (
-                          <a key={source.url} href={source.url} target="_blank" rel="noopener noreferrer"
+                        {(currentResult.orchestratorOutput?.citations?.length
+                          ? currentResult.orchestratorOutput.citations.map(c => ({
+                              title: c.title,
+                              url: c.url,
+                              citationId: c.id,
+                            }))
+                          : currentResult.sources
+                        ).map(source => (
+                          <a key={`${source.citationId ?? ''}-${source.url}`} href={source.url} target="_blank" rel="noopener noreferrer"
                             className="flex items-center gap-1 text-[11px] font-mono px-2.5 py-1 rounded-md transition-colors"
                             style={{ background: cardBg2, border: `1px solid ${borderC}`, color: textMuted }}
                             onMouseEnter={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.color = '#0070f3'; a.style.borderColor = 'rgba(0,112,243,0.3)'; }}
                             onMouseLeave={e => { const a = e.currentTarget as HTMLAnchorElement; a.style.color = textMuted; a.style.borderColor = borderC; }}>
-                            {source.title} <ArrowUpRight size={9} />
+                            {typeof source.citationId === 'number' ? `[${source.citationId}] ` : ''}{source.title} <ArrowUpRight size={9} />
                           </a>
                         ))}
                       </div>

@@ -1,5 +1,9 @@
 import { NextRequest } from 'next/server';
-import { orchestrate, runMirofishAgent, runMirofishLiveAgent } from '../../../lib/agents/orchestrator';
+import {
+  runOrchestration,
+  runMirofishAgent,
+  runMirofishLiveAgent,
+} from '../../../lib/agents/orchestrate-entry';
 import { createClient } from '@/lib/supabase-server';
 import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment, AgentOutput } from '../../../lib/agents/types';
 
@@ -127,7 +131,7 @@ export async function POST(req: NextRequest) {
     try {
       write({ type: 'orchestration_log', line: 'Starting orchestration…' });
       // ── Stage 1+2: 6 research agents (+ execution engine if needed) ────────
-      const result = await orchestrate(
+      const result = await runOrchestration(
         query,
         history,
         (agentRun: AgentRun) => {

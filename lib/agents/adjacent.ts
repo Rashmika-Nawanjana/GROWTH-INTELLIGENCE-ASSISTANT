@@ -1,6 +1,9 @@
 import { searchWeb, searchNews } from '../tools/serpapi';
 import { getTechSentiment } from '../tools/hn-algolia';
 import { searchReddit } from '../tools/reddit';
+import { planQueries } from '../tools/query-planner';
+import { filterRelevant, requirementsFromContext } from '../tools/relevance';
+import { extractCandidates, verifyCandidates } from '../tools/candidate-discovery';
 import { generateHuggingFaceJson } from './gemini';
 import type {
   AgentConfig,
@@ -10,150 +13,229 @@ import type {
   AdjacentThreat,
   AgentSource,
   ConfidenceLevel,
+  EvidenceCandidate,
 } from './types';
 import { scoreToLevel } from './types';
 import { computeSignalQualityPenalty, extractToolResults } from '../tools/fallback';
+import { runResearchLoop } from './research-loop';
+import { applyInsufficientGate, evidencePromptRules } from './evidence-gate';
+import { localeFromGeography } from './search-locale';
+import {
+  resolveEntityProbes,
+  resolveGapQueries,
+  resolveSearchQueries,
+} from './plan-queries';
+import type { SearchResult, ToolResult } from '../tools/types';
+import type { discoverAndScrape } from '../tools/discover-and-scrape';
 
 async function run(ctx: AgentContext): Promise<AgentOutput> {
-  const { query, product, competitor, priorContext } = ctx;
+  const { query, product, competitor, priorContext, geography, category: cat, namedEntities, requiredTerms } = ctx;
 
-  const category = competitor
-    ? `${product} vs ${competitor}`
-    : product;
+  const locale = localeFromGeography(geography);
+  const requirements = requirementsFromContext(ctx);
 
-  // ── Parallel data fetch — fully dynamic based on actual product ────────────
-  const [
-    platformThreatResult,
-    aiFundingResult,
-    disruptorResult,
-    fundingResult,
-    hnAdjacentResult,
-    redditAdjacentResult,
-  ] = await Promise.allSettled([
-    searchWeb(`${product} competitors alternatives disruption market 2025 2026`),
-    searchWeb(`${product} category adjacent market expansion threat 2025`),
-    searchWeb(`companies replacing ${product} OR disrupting ${category} 2025 2026`),
-    searchNews(`${product}${competitor ? ` ${competitor}` : ''} market disruption funding threat`),
-    getTechSentiment(`${product} disruption threat`),
-    searchReddit(`${product} alternatives what are people using instead`),
-  ]);
+  const queryBundle = planQueries({
+    product,
+    competitor,
+    domain: 'adjacent',
+    query,
+    category: cat,
+    geography,
+    namedEntities,
+    requiredTerms,
+  });
 
-  // Patent signals scoped to actual product
-  const [patentResult] = await Promise.allSettled([
-    searchWeb(`${product} patent filing technology site:patents.google.com OR site:patents.justia.com`),
-  ]);
+  const planned = resolveSearchQueries(ctx, [queryBundle.broad, queryBundle.targeted], 2);
+  const primaryQuery = planned[0] ?? queryBundle.broad;
+  const secondaryQuery = planned[1] ?? queryBundle.hypothesis;
+  const entityProbes = resolveEntityProbes(ctx, queryBundle.entityProbes, 2);
+  const gapQueries = resolveGapQueries(ctx, 3);
 
-  // ── Collect sources ────────────────────────────────────────────────────────
-  const sources: AgentSource[] = [];
-  const rawContent: string[] = [];
+  const categoryLabel = cat || (competitor ? `${product} vs ${competitor}` : product);
+  const searchedFor = [
+    primaryQuery,
+    secondaryQuery,
+    queryBundle.hypothesis,
+    ...entityProbes,
+    ...gapQueries,
+  ];
+  let candidates: EvidenceCandidate[] = [];
 
-  const addWebResults = (result: PromiseSettledResult<Awaited<ReturnType<typeof searchWeb>>>, label: string) => {
-    if (result.status === 'fulfilled') {
-      result.value.data.slice(0, 4).forEach((r: { url: string; title: string; snippet: string }) => {
-        sources.push({ url: r.url, title: r.title, timestamp: result.value.timestamp, tool: 'serpapi' });
-        rawContent.push(`[${label}] ${r.title}: ${r.snippet}`);
+  const loop = await runResearchLoop({
+    domain: 'adjacent',
+    requirements,
+    budgetMs: 15_000,
+    round1: () =>
+      Promise.allSettled([
+        searchWeb(primaryQuery, locale),
+        searchWeb(secondaryQuery, locale),
+        searchWeb(queryBundle.hypothesis, locale),
+        searchNews(primaryQuery, locale),
+        getTechSentiment(`${product} disruption threat`),
+        searchReddit(queryBundle.hypothesis),
+        // Skip patents.google when geography is set — global patents drown local signals
+        geography
+          ? searchWeb(`${primaryQuery} startup OR platform OR initiative`, locale)
+          : searchWeb(`${product} patent filing technology site:patents.google.com OR site:patents.justia.com`, locale),
+        ...entityProbes.slice(0, 1).map(q => searchWeb(q, locale)),
+      ]),
+    ingest: (settled, round) => {
+      const sources: AgentSource[] = [];
+      const rawContent: string[] = [];
+      const allHits: SearchResult[] = [];
+
+      const takeSearch = (
+        result: PromiseSettledResult<unknown> | undefined,
+        label: string,
+        tool: AgentSource['tool'],
+        limit: number,
+      ) => {
+        if (!result || result.status !== 'fulfilled') return;
+        const value = result.value as ToolResult<SearchResult[]>;
+        if (!Array.isArray(value?.data)) return;
+        const asSearch = value.data.map(r => ({
+          title: r.title,
+          url: r.url,
+          snippet: 'snippet' in r ? String((r as SearchResult).snippet ?? '') : '',
+        }));
+        const { kept } = filterRelevant(asSearch, requirements, { limit, minScore: geography ? 0.25 : 0.15 });
+        kept.forEach(r => {
+          allHits.push(r);
+          sources.push({ url: r.url, title: r.title, timestamp: value.timestamp, tool });
+          rawContent.push(`[${label}] ${r.title}: ${r.snippet}`);
+        });
+      };
+
+      if (round === 1) {
+        takeSearch(settled[0], 'PLATFORM THREAT', 'serpapi', 4);
+        takeSearch(settled[1], 'ADJACENT MARKET', 'serpapi', 4);
+        takeSearch(settled[2], 'DISRUPTOR', 'serpapi', 4);
+        takeSearch(settled[3], 'FUNDING', 'serpapi', 4);
+        if (settled[4]?.status === 'fulfilled') {
+          const hn = settled[4].value as { hnResult: ToolResult<Array<{ url: string; title: string; created: string }>>; summary: string };
+          hn.hnResult?.data?.slice(0, 3).forEach(p => {
+            sources.push({ url: p.url, title: p.title, timestamp: p.created, tool: 'hn' });
+          });
+          if (hn.summary) rawContent.push(`[HN TECH SENTIMENT] ${hn.summary}`);
+        }
+        takeSearch(settled[5], 'REDDIT ADJACENT', 'reddit', 4);
+        takeSearch(settled[6], geography ? 'LOCAL THREAT' : 'PATENT SIGNAL', 'serpapi', 3);
+        for (let i = 7; i < settled.length; i++) takeSearch(settled[i], 'ENTITY ADJACENT', 'serpapi', 3);
+        candidates = extractCandidates(allHits, { geographyName: geography?.name, exclude: [product], limit: 5 });
+      } else {
+        for (const s of settled) {
+          if (s.status !== 'fulfilled') continue;
+          const val = s.value as Awaited<ReturnType<typeof discoverAndScrape>> | ToolResult<SearchResult[]>;
+          if (val && 'pages' in val && Array.isArray(val.pages)) {
+            val.pages.forEach(pageResult => {
+              if (pageResult.status === 'failed' || !pageResult.data.markdown?.trim()) return;
+              sources.push({ url: pageResult.data.url, title: pageResult.data.title || 'Candidate', timestamp: pageResult.timestamp, tool: 'firecrawl' });
+              rawContent.push(`[CANDIDATE] ${pageResult.data.title}: ${pageResult.data.excerpt}`);
+            });
+          } else if (val && 'data' in val && Array.isArray(val.data)) {
+            takeSearch(
+              { status: 'fulfilled', value: val } as PromiseFulfilledResult<ToolResult<SearchResult[]>>,
+              'GAP QUERY',
+              'serpapi',
+              4,
+            );
+          }
+        }
+      }
+
+      return {
+        sources,
+        rawContent,
+        toolResults: extractToolResults(settled as PromiseSettledResult<ToolResult<unknown>>[]),
+        searchedFor,
+        relevantSourceCount: sources.length,
+        relevantHits: allHits,
+        scrapedPageCount: sources.filter(s => s.tool === 'firecrawl').length,
+      };
+    },
+    gapRound: async () => {
+      if (gapQueries.length > 0) {
+        const settled = await Promise.allSettled(
+          gapQueries.slice(0, 2).map(q => searchWeb(q, locale)),
+        );
+        searchedFor.push(...gapQueries.slice(0, 2));
+        return settled;
+      }
+
+      const { settled, queries } = await verifyCandidates(candidates, {
+        product,
+        geographyName: geography?.name,
+        category: cat ?? categoryLabel,
+        maxCandidates: 2,
+        topN: 1,
       });
-    }
-  };
+      searchedFor.push(...queries);
+      return settled;
+    },
+  });
 
-  addWebResults(platformThreatResult, 'PLATFORM THREAT');
-  addWebResults(aiFundingResult, 'ADJACENT MARKET');
-  addWebResults(disruptorResult, 'DISRUPTOR');
-  addWebResults(fundingResult, 'FUNDING');
+  if (candidates.length) loop.evidence = { ...loop.evidence, candidates };
 
-  if (hnAdjacentResult.status === 'fulfilled') {
-    const { hnResult, summary } = hnAdjacentResult.value;
-    hnResult.data.slice(0, 3).forEach(p => {
-      sources.push({ url: p.url, title: p.title, timestamp: p.created, tool: 'hn' });
-    });
-    rawContent.push(`[HN TECH SENTIMENT] ${summary}`);
-  }
-  if (redditAdjacentResult.status === 'fulfilled') {
-    redditAdjacentResult.value.data.slice(0, 4).forEach(p => {
-      sources.push({ url: p.url, title: p.title, timestamp: p.created, tool: 'reddit' });
-      rawContent.push(`[REDDIT ADJACENT] ${p.title}: ${p.snippet}`);
-    });
-  }
-  if (patentResult.status === 'fulfilled') {
-    addWebResults(patentResult, 'PATENT SIGNAL');
-  }
-
-  // ── Gemini synthesis ───────────────────────────────────────────────────────
-  const systemPrompt = `You are a strategic threat analyst who identifies companies from OUTSIDE the primary category that could disrupt it. You think in terms of market adjacency, platform expansion, and category convergence.
-
-Key question: What companies or trends are NOT currently in the ${category} space but have the distribution, data, or technology to enter it or displace it credibly within 12-18 months?
-
-Types of adjacent threats to watch:
-1. Platform expansion — large platforms adding the same capability as a feature
-2. Infrastructure players — lower-level tech companies moving up-stack
-3. Horizontal AI — general-purpose AI agents expanding into this vertical
-4. Category convergence — adjacent tools expanding into this space
-${priorContext ? `\nPrior conversation context:\n${priorContext}` : ''}`;
+  const systemPrompt = `You are a strategic threat analyst identifying companies from OUTSIDE the primary category that could disrupt it.
+${priorContext ? `\nPrior conversation context:\n${priorContext}` : ''}
+${evidencePromptRules(geography, cat)}`;
 
   const userPrompt = `Query: "${query}"
-Product category: ${category}
+Product category: ${categoryLabel}
+${geography ? `Geography: ${geography.name}` : ''}
+Evidence status: ${loop.evidence.status}
 
 Raw signals:
-${rawContent.join('\n')}
+${loop.rawContent.join('\n') || '(no relevant adjacent signals)'}
 
 Produce JSON:
 {
+  "insufficientEvidence": boolean,
   "facts": string[],
   "interpretation": string[],
-  "threats": [
-    {
-      "company": string,
-      "category": string,
-      "threatVector": string,
-      "riskLevel": "high" | "medium" | "low",
-      "evidence": string
-    }
-  ],
+  "threats": [{ "company": string, "category": string, "threatVector": string, "riskLevel": "high" | "medium" | "low", "evidence": string }],
   "overallRisk": "high" | "medium" | "low",
   "timeToImpact": string,
   "defensiveActions": string[],
   "synthesizedAnswer": string,
   "confidenceScore": number
-}`;
+}
 
-  let parsed: any = {};
+If insufficientEvidence, leave threats empty — do not invent global patent threats for a local market.`;
+
+  let parsed: Record<string, unknown> = {};
   try {
-    parsed = await generateHuggingFaceJson<any>(systemPrompt, userPrompt, {
-      maxNewTokens: 1400,
-      temperature: 0.2,
-    });
+    parsed = await generateHuggingFaceJson(systemPrompt, userPrompt, { maxNewTokens: 1400, temperature: 0.2 });
   } catch {
-    parsed = {
-      facts: rawContent.slice(0, 3).map(s => s.replace(/^\[[^\]]+\]\s*/, '')).filter(s => s.length > 15),
-      interpretation: ['Analysis synthesis is temporarily unavailable. Raw data signals are shown below.'],
-      threats: [],
-      overallRisk: 'medium',
-      timeToImpact: '12-18 months',
-      defensiveActions: [],
-      synthesizedAnswer: 'Adjacent threat data collected but synthesis failed.',
-      confidenceScore: 0.4,
-    };
+    parsed = { insufficientEvidence: true, facts: [], interpretation: loop.evidence.gaps, threats: [], overallRisk: 'medium', timeToImpact: '12-18 months', defensiveActions: [], confidenceScore: 0.35 };
   }
 
-  const rawScore: number = typeof parsed.confidenceScore === 'number' ? parsed.confidenceScore : 0.6;
-  const toolResults = extractToolResults([platformThreatResult, aiFundingResult, disruptorResult, fundingResult, hnAdjacentResult, redditAdjacentResult, patentResult]);
-  const confScore = Number.parseFloat((rawScore * computeSignalQualityPenalty(toolResults, 7)).toFixed(2));
-  const confidence: ConfidenceLevel = scoreToLevel(confScore);
+  const gate = applyInsufficientGate(parsed, loop.evidence);
+  if (gate.insufficient) loop.evidence = { ...loop.evidence, status: 'insufficient' };
+
+  const confScore = Number.parseFloat(
+    (gate.confidenceScore * computeSignalQualityPenalty(loop.toolResults, 7)).toFixed(2),
+  );
 
   const output: AdjacentOutput = {
     agentId: 'adjacent',
     domain: 'adjacent',
     artifactType: 'threat-heatmap',
-    confidence,
+    confidence: scoreToLevel(confScore),
     confidenceScore: confScore,
-    facts: parsed.facts ?? [],
-    interpretation: parsed.interpretation ?? [],
-    sources,
+    facts: gate.insufficient ? [] : (parsed.facts as string[] ?? []),
+    interpretation: gate.insufficient ? loop.evidence.gaps : (parsed.interpretation as string[] ?? []),
+    sources: loop.sources,
     generatedAt: new Date().toISOString(),
-    threats: (parsed.threats ?? []) as AdjacentThreat[],
-    overallRisk: parsed.overallRisk ?? 'medium',
-    timeToImpact: parsed.timeToImpact ?? '12-18 months',
-    defensiveActions: parsed.defensiveActions ?? [],
+    threats: gate.insufficient ? [] : ((parsed.threats ?? []) as AdjacentThreat[]),
+    overallRisk: (parsed.overallRisk as AdjacentOutput['overallRisk']) ?? 'medium',
+    timeToImpact: (parsed.timeToImpact as string) ?? '12-18 months',
+    defensiveActions: gate.insufficient ? [] : (parsed.defensiveActions as string[] ?? []),
+    evidence: loop.evidence,
+    toolCallCount: loop.toolCallCount,
+    searchCallCount: loop.searchCallCount,
+    scrapeCallCount: loop.scrapeCallCount,
+    droppedIrrelevantCount: loop.droppedIrrelevantCount,
   };
 
   return output;

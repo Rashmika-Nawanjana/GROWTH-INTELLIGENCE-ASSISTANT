@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { orchestrate } from '@/lib/agents/orchestrator';
+import { runOrchestration } from '@/lib/agents/orchestrate-entry';
 import { buildFeedbackSummary, buildRefinementDeltas } from '@/lib/agents/refine-utils';
 import type {
   ConversationMessage,
@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
 
   let refinedOutput: OrchestratorOutput;
   try {
-    refinedOutput = await orchestrate(
+    refinedOutput = await runOrchestration(
       refinedQuery,
       history,
       undefined,

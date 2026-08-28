@@ -1,14 +1,19 @@
 // Query planner — generates intent-aware query bundles from templates.
-// Each bundle has: broad query, site-filtered query, hypothesis query.
-// Agents call this once per intent, then distribute queries to searchWeb.
+// Each bundle has: broad query, site-filtered query, hypothesis query,
+// optional entity probes, and requiredTerms for relevance filtering.
 
-import type { IntelligenceDomain } from '../agents/types';
+import type { GeographyContext, IntelligenceDomain } from '../agents/types';
+import { isPlaceholderCompetitor } from '../agents/entity-url';
 
 export interface QueryBundle {
-  broad: string;        // generic market/category query
-  targeted: string;     // site-filtered or source-specific query
-  hypothesis: string;   // intent/hypothesis-specific query
-  keywords: string[];   // extracted key terms for URL filtering
+  broad: string;
+  targeted: string;
+  hypothesis: string;
+  keywords: string[];
+  /** Extra searches for named entities (e.g. "Govi Isuru" Sri Lanka agritech). */
+  entityProbes: string[];
+  /** Terms a relevant source should relate to. */
+  requiredTerms: string[];
 }
 
 export interface QueryPlanContext {
@@ -16,8 +21,11 @@ export interface QueryPlanContext {
   competitor?: string;
   domain: IntelligenceDomain;
   query: string;
-  category?: string;    // inferred category (e.g. "AI SDR", "vector database")
-  audience?: string;    // inferred audience (e.g. "Series A founders")
+  category?: string;
+  audience?: string;
+  geography?: GeographyContext;
+  namedEntities?: string[];
+  requiredTerms?: string[];
 }
 
 function currentYears(): { year: number; nextYear: number } {
@@ -35,93 +43,205 @@ function normalizeCategory(ctx: QueryPlanContext): string {
   return ctx.category?.trim() || `${ctx.product} category`;
 }
 
-function normalizeCompetitor(ctx: QueryPlanContext): string {
-  return ctx.competitor?.trim() || 'top competitors';
+/** Never emit placeholder competitor strings as search terms. */
+function resolveCompetitorLabel(ctx: QueryPlanContext): string {
+  if (ctx.competitor?.trim() && !isPlaceholderCompetitor(ctx.competitor)) {
+    return ctx.competitor.trim();
+  }
+  // Discovery mode: category + geography instead of "relevant competitors"
+  return compactJoin([normalizeCategory(ctx), geoQualifier(ctx)]) || 'competitors';
+}
+
+export function geoQualifier(ctx: Pick<QueryPlanContext, 'geography'>): string {
+  return ctx.geography?.name?.trim() || '';
+}
+
+function buildRequiredTerms(ctx: QueryPlanContext, keywords: string[]): string[] {
+  const terms = [
+    ...(ctx.requiredTerms ?? []),
+    ...keywords,
+    ctx.geography?.name,
+    ctx.category,
+    ctx.product,
+    ...(ctx.namedEntities ?? []),
+  ]
+    .filter((t): t is string => typeof t === 'string' && t.trim().length > 2)
+    .map(t => t.trim());
+  return [...new Set(terms)].slice(0, 12);
+}
+
+function buildEntityProbes(ctx: QueryPlanContext): string[] {
+  const entities = ctx.namedEntities ?? [];
+  const geo = geoQualifier(ctx);
+  const category = normalizeCategory(ctx);
+  return entities.slice(0, 4).map(e =>
+    compactJoin([`"${e}"`, geo, category, 'platform startup company']),
+  );
+}
+
+function withGeo(query: string, ctx: QueryPlanContext): string {
+  const geo = geoQualifier(ctx);
+  if (!geo) return query;
+  if (query.toLowerCase().includes(geo.toLowerCase())) return query;
+  return `${query} ${geo}`;
 }
 
 // Domain-specific query templates
-const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBundle> = {
+const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => Omit<QueryBundle, 'entityProbes' | 'requiredTerms'>> = {
   'market-trends': (ctx) => {
     const { year, nextYear } = currentYears();
     const category = normalizeCategory(ctx);
+    const geo = geoQualifier(ctx);
     return {
-    broad: `${ctx.product} market trends ${year} ${nextYear} growth industry`,
-    targeted: `site:reddit.com OR site:indiehackers.com OR site:x.com OR site:twitter.com OR site:linkedin.com OR site:instagram.com "${ctx.product}" "${category}" trending growth`,
-    hypothesis: `"${ctx.product}" OR "${category}" (accelerating OR consolidating OR emerging) adoption`,
-    keywords: ['growth', 'trends', 'adoption', 'market', 'category', 'revenue', 'x.com', 'linkedin', 'instagram'],
-  };
+      broad: withGeo(`${ctx.product} market trends ${year} ${nextYear} growth industry`, ctx),
+      targeted: compactJoin([
+        `site:reddit.com OR site:indiehackers.com OR site:x.com OR site:twitter.com OR site:linkedin.com`,
+        `"${ctx.product}"`,
+        `"${category}"`,
+        geo,
+        'trending growth',
+      ]),
+      hypothesis: withGeo(
+        `"${ctx.product}" OR "${category}" (accelerating OR consolidating OR emerging) adoption`,
+        ctx,
+      ),
+      keywords: ['growth', 'trends', 'adoption', 'market', 'category', 'revenue', ...(geo ? [geo] : [])],
+    };
   },
 
   competitive: (ctx) => {
     const { year, nextYear } = currentYears();
-    const competitor = normalizeCompetitor(ctx);
+    const competitor = resolveCompetitorLabel(ctx);
+    const category = normalizeCategory(ctx);
+    const geo = geoQualifier(ctx);
+    const discovery = isPlaceholderCompetitor(ctx.competitor);
     return {
-    broad: `${competitor} ${ctx.product} features pricing positioning`,
-    targeted: `site:linkedin.com OR site:x.com OR site:twitter.com OR site:instagram.com "${competitor}" ("new feature" OR "just launched" OR positioning) ${year} ${nextYear}`,
-    hypothesis: `${competitor} vs ${ctx.product} differentiation competitive advantage`,
-    keywords: ['feature', 'competitor', 'pricing', 'positioning', 'launch', 'announcement', 'linkedin', 'x.com', 'instagram'],
-  };
+      broad: discovery
+        ? withGeo(`${category} startups companies platforms competitors`, ctx)
+        : withGeo(`${competitor} ${ctx.product} features pricing positioning`, ctx),
+      targeted: discovery
+        ? compactJoin([
+            `"${category}"`,
+            geo,
+            'startup OR platform OR company (agritech OR agriculture OR farming)',
+          ])
+        : compactJoin([
+            `site:linkedin.com OR site:x.com OR site:twitter.com`,
+            `"${competitor}"`,
+            `("new feature" OR "just launched" OR positioning)`,
+            String(year),
+            String(nextYear),
+            geo,
+          ]),
+      hypothesis: discovery
+        ? withGeo(`${category} competitive landscape players comparison`, ctx)
+        : withGeo(`${competitor} vs ${ctx.product} differentiation competitive advantage`, ctx),
+      keywords: [
+        'feature', 'competitor', 'pricing', 'positioning', 'launch',
+        ...(geo ? [geo] : []),
+        ...category.split(/[\s/]+/).filter(t => t.length > 3),
+      ],
+    };
   },
 
   'win-loss': (ctx) => {
-    const competitor = normalizeCompetitor(ctx);
+    const competitor = resolveCompetitorLabel(ctx);
+    const category = normalizeCategory(ctx);
+    const discovery = isPlaceholderCompetitor(ctx.competitor);
     return {
-    broad: `why choose ${competitor} over ${ctx.product} review comparison`,
-    targeted: `site:g2.com OR site:capterra.com "${ctx.product}" review pros cons`,
-    hypothesis: `buyers switching from ${ctx.product} to ${competitor} reasons`,
-    keywords: ['review', 'comparison', 'alternative', 'why', 'better', 'difference'],
-  };
+      broad: discovery
+        ? withGeo(`${category} buyer reviews feedback complaints`, ctx)
+        : withGeo(`why choose ${competitor} over ${ctx.product} review comparison`, ctx),
+      targeted: discovery
+        ? withGeo(`${category} farmer review OR user feedback OR case study`, ctx)
+        : `site:g2.com OR site:capterra.com "${ctx.product}" review pros cons`,
+      hypothesis: discovery
+        ? withGeo(`${category} switching reasons adoption barriers`, ctx)
+        : withGeo(`buyers switching from ${ctx.product} to ${competitor} reasons`, ctx),
+      keywords: ['review', 'comparison', 'alternative', 'why', 'better', 'difference'],
+    };
   },
 
   pricing: (ctx) => {
-    const competitor = normalizeCompetitor(ctx);
+    const competitor = resolveCompetitorLabel(ctx);
     const category = normalizeCategory(ctx);
+    const discovery = isPlaceholderCompetitor(ctx.competitor);
     return {
-    broad: `${ctx.product} pricing cost per seat willingness to pay ${competitor}`,
-    targeted: `site:reddit.com OR site:x.com OR site:linkedin.com OR site:instagram.com "${ctx.product}" pricing (expensive OR cheap OR worth)`,
-    hypothesis: `pricing model SaaS ${category} (ROI OR cost savings OR CAC)`,
-    keywords: ['pricing', 'cost', 'willingness', 'CAC', 'ROI', 'per-seat', 'x.com', 'linkedin', 'instagram'],
-  };
+      broad: discovery
+        ? withGeo(`${category} pricing cost plans subscription`, ctx)
+        : withGeo(`${ctx.product} pricing cost per seat willingness to pay ${competitor}`, ctx),
+      targeted: discovery
+        ? withGeo(`${category} pricing page OR "starting at" OR "per month" OR freemium`, ctx)
+        : compactJoin([
+            `site:reddit.com OR site:x.com OR site:linkedin.com`,
+            `"${ctx.product}"`,
+            'pricing (expensive OR cheap OR worth)',
+            geoQualifier(ctx),
+          ]),
+      hypothesis: withGeo(`pricing model ${category} (ROI OR cost savings OR CAC)`, ctx),
+      keywords: ['pricing', 'cost', 'willingness', 'CAC', 'ROI', 'plans'],
+    };
   },
 
   positioning: (ctx) => {
-    const competitor = normalizeCompetitor(ctx);
+    const competitor = resolveCompetitorLabel(ctx);
+    const category = normalizeCategory(ctx);
+    const discovery = isPlaceholderCompetitor(ctx.competitor);
     return {
-    broad: `${ctx.product} messaging positioning brand USP vs ${competitor}`,
-    targeted: `site:linkedin.com OR site:x.com OR site:twitter.com OR site:instagram.com "${ctx.product}" brand message positioning ("think like" OR "move like")`,
-    hypothesis: `positioning gap ${ctx.product} market opportunity messaging`,
-    keywords: ['positioning', 'messaging', 'USP', 'brand', 'audience', 'claim', 'x.com', 'linkedin', 'instagram'],
-  };
+      broad: discovery
+        ? withGeo(`${category} messaging positioning brand USP`, ctx)
+        : withGeo(`${ctx.product} messaging positioning brand USP vs ${competitor}`, ctx),
+      targeted: compactJoin([
+        `site:linkedin.com OR site:x.com OR site:twitter.com`,
+        `"${ctx.product}"`,
+        'brand message positioning',
+        geoQualifier(ctx),
+      ]),
+      hypothesis: withGeo(`positioning gap ${ctx.product} ${category} market opportunity messaging`, ctx),
+      keywords: ['positioning', 'messaging', 'USP', 'brand', 'audience', 'claim'],
+    };
   },
 
   adjacent: (ctx) => {
     const { year, nextYear } = currentYears();
     const category = normalizeCategory(ctx);
     return {
-    broad: `companies disrupting ${ctx.product} category adjacent market threat ${year} ${nextYear}`,
-    targeted: `site:crunchbase.com OR site:techcrunch.com "${category}" funding disruption threat`,
-    hypothesis: `platform expansion AI agents threat to ${ctx.product} category`,
-    keywords: ['threat', 'disruption', 'adjacent', 'platform', 'expansion', 'funding'],
-  };
+      broad: withGeo(
+        `companies disrupting ${category} adjacent market threat ${year} ${nextYear}`,
+        ctx,
+      ),
+      targeted: withGeo(
+        `site:crunchbase.com OR site:techcrunch.com "${category}" funding disruption threat`,
+        ctx,
+      ),
+      hypothesis: withGeo(`platform expansion AI agents threat to ${category}`, ctx),
+      keywords: ['threat', 'disruption', 'adjacent', 'platform', 'expansion', 'funding'],
+    };
   },
 
   'execution-engine': (ctx) => {
     const category = normalizeCategory(ctx);
     return {
-    broad: `${ctx.product} outreach email templates campaign copy examples`,
-    targeted: `site:linkedin.com OR site:x.com OR site:instagram.com "${ctx.product}" campaign message copy best practices`,
-    hypothesis: `high-performing ${category} outreach email hooks ROI angle`,
-    keywords: ['outreach', 'copy', 'email', 'campaign', 'hook', 'variant', 'linkedin', 'x.com', 'instagram'],
-  };
+      broad: `${ctx.product} outreach email templates campaign copy examples`,
+      targeted: `site:linkedin.com OR site:x.com OR site:instagram.com "${ctx.product}" campaign message copy best practices`,
+      hypothesis: `high-performing ${category} outreach email hooks ROI angle`,
+      keywords: ['outreach', 'copy', 'email', 'campaign', 'hook', 'variant'],
+    };
   },
 
   mirofish: (ctx) => {
     const { year, nextYear } = currentYears();
     const category = normalizeCategory(ctx);
     return {
-      broad: `${ctx.product} forecast prediction market sizing TAM revenue projection`,
-      targeted: `site:crunchbase.com OR site:techcrunch.com "${category}" market size growth projection`,
-      hypothesis: `${ctx.product} category market expansion forecast ${year} ${nextYear} opportunity`,
+      broad: withGeo(`${ctx.product} forecast prediction market sizing TAM revenue projection`, ctx),
+      targeted: withGeo(
+        `site:crunchbase.com OR site:techcrunch.com "${category}" market size growth projection`,
+        ctx,
+      ),
+      hypothesis: withGeo(
+        `${ctx.product} category market expansion forecast ${year} ${nextYear} opportunity`,
+        ctx,
+      ),
       keywords: ['forecast', 'TAM', 'market size', 'projection', 'growth', 'opportunity'],
     };
   },
@@ -130,9 +250,15 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
     const { year, nextYear } = currentYears();
     const category = normalizeCategory(ctx);
     return {
-      broad: `${ctx.product} forecast prediction market sizing TAM revenue projection`,
-      targeted: `site:crunchbase.com OR site:techcrunch.com "${category}" market size growth projection`,
-      hypothesis: `${ctx.product} category market expansion forecast ${year} ${nextYear} opportunity`,
+      broad: withGeo(`${ctx.product} forecast prediction market sizing TAM revenue projection`, ctx),
+      targeted: withGeo(
+        `site:crunchbase.com OR site:techcrunch.com "${category}" market size growth projection`,
+        ctx,
+      ),
+      hypothesis: withGeo(
+        `${ctx.product} category market expansion forecast ${year} ${nextYear} opportunity`,
+        ctx,
+      ),
       keywords: ['forecast', 'TAM', 'market size', 'projection', 'growth', 'opportunity'],
     };
   },
@@ -140,8 +266,6 @@ const TEMPLATES: Record<IntelligenceDomain, (ctx: QueryPlanContext) => QueryBund
 
 /**
  * Generate a query bundle for an agent's domain.
- * Uses templates + context to create 3 query variants (broad, targeted, hypothesis).
- * Agents typically run all 3 in parallel for best coverage.
  */
 export function planQueries(ctx: QueryPlanContext): QueryBundle {
   const normalizedCtx: QueryPlanContext = {
@@ -151,27 +275,37 @@ export function planQueries(ctx: QueryPlanContext): QueryBundle {
     category: ctx.category?.trim() || undefined,
     audience: ctx.audience?.trim() || undefined,
     query: compactJoin([ctx.query]).trim(),
+    geography: ctx.geography,
+    namedEntities: ctx.namedEntities,
+    requiredTerms: ctx.requiredTerms,
   };
   const generator = TEMPLATES[ctx.domain];
+  let base: Omit<QueryBundle, 'entityProbes' | 'requiredTerms'>;
   if (!generator) {
-    // Fallback for unknown domains
-    return {
-      broad: normalizedCtx.query,
-      targeted: `${normalizedCtx.query} site:reddit.com OR site:linkedin.com OR site:x.com OR site:twitter.com OR site:instagram.com`,
+    base = {
+      broad: withGeo(normalizedCtx.query, normalizedCtx),
+      targeted: `${normalizedCtx.query} site:reddit.com OR site:linkedin.com OR site:x.com`,
       hypothesis: `${normalizedCtx.query} (ROI OR impact OR competitive)`,
       keywords: normalizedCtx.query.split(/\s+/).slice(0, 5),
     };
+  } else {
+    base = generator(normalizedCtx);
   }
-  return generator(normalizedCtx);
+
+  return {
+    ...base,
+    entityProbes: buildEntityProbes(normalizedCtx),
+    requiredTerms: buildRequiredTerms(normalizedCtx, base.keywords),
+  };
 }
 
 /**
  * Extract keywords from a query bundle for URL filtering.
- * Used downstream to rank scraped URLs by relevance before fetching.
  */
 export function extractKeywords(bundle: QueryBundle): Set<string> {
   const allTerms = [
     ...bundle.keywords,
+    ...(bundle.requiredTerms ?? []),
     ...bundle.broad.split(/\s+/),
     ...bundle.targeted.split(/\s+/),
     ...bundle.hypothesis.split(/\s+/),
@@ -179,5 +313,5 @@ export function extractKeywords(bundle: QueryBundle): Set<string> {
     .map(t => t.toLowerCase())
     .filter(t => t.length > 3 && !['site', 'and', 'the', 'for', 'with', 'from'].includes(t));
 
-  return new Set(allTerms.slice(0, 15)); // top 15 unique keywords
+  return new Set(allTerms.slice(0, 15));
 }
