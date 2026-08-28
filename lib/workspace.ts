@@ -14,6 +14,7 @@ export interface Workspace {
   id: string;
   name: string;
   position: number;
+  team_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -60,6 +61,7 @@ function mapWorkspace(row: Record<string, unknown>): Workspace {
     id: row.id as string,
     name: row.name as string,
     position: (row.position as number) ?? 0,
+    team_id: (row.team_id as string | null) ?? null,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
   };
@@ -104,6 +106,7 @@ export async function listWorkspaces(): Promise<Workspace[]> {
     .from('workspaces')
     .select('*')
     .eq('user_id', user.id)
+    .is('team_id', null)
     .order('position', { ascending: true })
     .order('created_at', { ascending: true });
 
@@ -112,6 +115,55 @@ export async function listWorkspaces(): Promise<Workspace[]> {
     return [];
   }
   return (data ?? []).map(row => mapWorkspace(row as Record<string, unknown>));
+}
+
+/** Shared team boards the current user can access (via RLS). */
+export async function listSharedWorkspaces(): Promise<Workspace[]> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from('workspaces')
+    .select('*')
+    .not('team_id', 'is', null)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    console.error('listSharedWorkspaces:', error.message);
+    return [];
+  }
+  return (data ?? []).map(row => mapWorkspace(row as Record<string, unknown>));
+}
+
+/** Personal + shared boards the user can write to (for pin menu). */
+export async function listWritableWorkspaces(): Promise<Array<Workspace & { shared?: boolean; sharedLabel?: string }>> {
+  const personal = await listWorkspaces();
+  const { fetchTeams } = await import('@/lib/teams');
+  let teams: Awaited<ReturnType<typeof fetchTeams>> = [];
+  try {
+    teams = await fetchTeams();
+  } catch {
+    // No teams or API unavailable — personal boards only
+  }
+
+  const writableShared = teams
+    .filter(t => (t.myRole === 'owner' || t.myRole === 'editor') && t.workspaceId)
+    .map(t => ({
+      id: t.workspaceId!,
+      name: `${t.name} board`,
+      position: 0,
+      team_id: t.id,
+      created_at: t.createdAt,
+      updated_at: t.createdAt,
+      shared: true as const,
+      sharedLabel: `${t.name} · shared`,
+    }));
+
+  return [
+    ...personal.map(w => ({ ...w, shared: false as const })),
+    ...writableShared,
+  ];
 }
 
 export async function createWorkspace(name: string): Promise<Workspace | null> {
@@ -191,7 +243,6 @@ export async function addToWorkspace(input: AddToWorkspaceInput): Promise<Worksp
   const { data: existing } = await supabase
     .from('workspace_items')
     .select('position')
-    .eq('user_id', user.id)
     .eq('workspace_id', input.workspaceId)
     .order('position', { ascending: false })
     .limit(1);
@@ -246,7 +297,6 @@ export async function listWorkspaceItems(workspaceId?: string | null): Promise<W
   let query = supabase
     .from('workspace_items')
     .select('*')
-    .eq('user_id', user.id)
     .order('position', { ascending: true })
     .order('created_at', { ascending: false });
 

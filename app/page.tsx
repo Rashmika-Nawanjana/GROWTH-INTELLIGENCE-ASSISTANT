@@ -8,11 +8,12 @@ import {
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Check, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon, Rocket, Fish, CheckCheck, Sparkles,
-  ThumbsUp, ThumbsDown, BarChart3, Crosshair, Bookmark,
+  ThumbsUp, ThumbsDown, BarChart3, Crosshair, Bookmark, Users,
 } from 'lucide-react';
 import { ApiUsagePanel } from '@/components/ApiUsagePanel';
 import { StealStrategyPanel } from '@/components/StealStrategyPanel';
 import { WorkspacePanel } from '@/components/workspace/WorkspacePanel';
+import { SharedWorkspacePanel } from '@/components/workspace/SharedWorkspacePanel';
 import { AddToWorkspaceButton } from '@/components/workspace/AddToWorkspaceButton';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput, RefinementDelta } from '@/lib/agents/types';
@@ -541,7 +542,12 @@ export default function VeracityDashboard() {
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   /** Top header tabs: main intelligence vs usage vs steal strategy vs workspace. */
-  const [topTab, setTopTab] = useState<'intelligence' | 'usage' | 'steal' | 'workspace'>('intelligence');
+  const [topTab, setTopTab] = useState<'intelligence' | 'usage' | 'steal' | 'workspace' | 'shared'>('intelligence');
+
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    if (tab === 'shared') setTopTab('shared');
+  }, []);
   /** Keys of artifacts already pinned to workspace this session (optimistic UI). */
   const [workspaceSavedKeys, setWorkspaceSavedKeys] = useState<Set<string>>(() => new Set());
   /** Rolling totals for API Usage tab (reset on new query). */
@@ -1549,6 +1555,7 @@ export default function VeracityDashboard() {
               { id: 'usage' as const, label: 'API usage', icon: <BarChart3 size={12} /> },
               { id: 'steal' as const, label: 'Steal strategy', icon: <Crosshair size={12} /> },
               { id: 'workspace' as const, label: 'Workspace', icon: <Bookmark size={12} /> },
+              { id: 'shared' as const, label: 'Shared', icon: <Users size={12} /> },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1649,6 +1656,8 @@ export default function VeracityDashboard() {
             {topTab === 'steal' && <StealStrategyPanel />}
 
             {topTab === 'workspace' && <WorkspacePanel />}
+
+            {topTab === 'shared' && <SharedWorkspacePanel />}
 
             {topTab === 'intelligence' && (
             <>

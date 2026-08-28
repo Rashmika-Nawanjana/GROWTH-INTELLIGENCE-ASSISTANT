@@ -7,7 +7,7 @@ import type { AgentOutput } from '@/lib/agents/types';
 import {
   addToWorkspace,
   createWorkspace,
-  listWorkspaces,
+  listWritableWorkspaces,
   nextWorkspaceName,
   workspaceItemKey,
   type Workspace,
@@ -36,7 +36,7 @@ export function AddToWorkspaceButton({
 }: Props) {
   const { isDark, surface, border, text, textMuted, textSubtle } = useTheme();
   const [open, setOpen] = useState(false);
-  const [boards, setBoards] = useState<Workspace[]>([]);
+  const [boards, setBoards] = useState<Array<Workspace & { shared?: boolean; sharedLabel?: string }>>([]);
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -67,7 +67,7 @@ export function AddToWorkspaceButton({
     setLoadingBoards(true);
     setShowCreate(false);
     try {
-      const list = await listWorkspaces();
+      const list = await listWritableWorkspaces();
       setBoards(list);
       if (list.length === 0) {
         const suggested = await nextWorkspaceName();
@@ -79,7 +79,7 @@ export function AddToWorkspaceButton({
     }
   }
 
-  async function saveTo(board: Workspace) {
+  async function saveTo(board: Workspace & { shared?: boolean; sharedLabel?: string }) {
     const key = workspaceItemKey(sessionId, messageId, output.artifactType, board.id);
     if (savedKeys.has(key) || savingId) return;
     setSavingId(board.id);
@@ -96,7 +96,7 @@ export function AddToWorkspaceButton({
       });
       if (item) {
         onSaved(key);
-        setLastSavedName(board.name);
+        setLastSavedName(board.sharedLabel ?? board.name);
         setOpen(false);
         setShowCreate(false);
       }
@@ -169,7 +169,7 @@ export function AddToWorkspaceButton({
                     onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.background = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)'; }}
                     onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}
                   >
-                    <span className="truncate">{board.name}</span>
+                    <span className="truncate">{board.sharedLabel ?? board.name}</span>
                     {busy ? (
                       <Loader2 size={12} className="animate-spin shrink-0" style={{ color: textMuted }} />
                     ) : already ? (

@@ -6,6 +6,7 @@ import {
   indexWorkspaceArtifact,
 } from '@/lib/workspace/index-artifact';
 import { isWorkspaceRagEnabled } from '@/lib/workspace/rag-config';
+import { canWriteWorkspaceRole, getWorkspaceAccessRole } from '@/lib/workspace/access';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -50,11 +51,19 @@ export async function POST(req: NextRequest) {
     .from('workspace_items')
     .select('*')
     .eq('id', itemId)
-    .eq('user_id', user.id)
     .single();
 
   if (itemError || !item) {
     return jsonError('Workspace item not found', 404);
+  }
+
+  const workspaceId = item.workspace_id as string | null;
+  const accessRole = await getWorkspaceAccessRole(supabase, workspaceId);
+  if (!accessRole) {
+    return jsonError('Workspace item not found', 404);
+  }
+  if (!canWriteWorkspaceRole(accessRole)) {
+    return jsonError('View-only access — cannot index this artifact', 403);
   }
 
   const result = await indexWorkspaceArtifact(supabase, {

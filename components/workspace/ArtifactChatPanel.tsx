@@ -18,9 +18,10 @@ const PRESETS = [
 interface Props {
   itemId: string;
   chartType: ChartType;
+  readOnly?: boolean;
 }
 
-export function ArtifactChatPanel({ itemId, chartType }: Props) {
+export function ArtifactChatPanel({ itemId, chartType, readOnly = false }: Props) {
   const { isDark, surface, surface2, border, text, textMuted, textSubtle } = useTheme();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<WorkspaceItemMessage[]>([]);
@@ -96,11 +97,12 @@ export function ArtifactChatPanel({ itemId, chartType }: Props) {
         style={{ color: textMuted }}
       >
         <MessageSquare size={12} />
-        {open ? 'Hide AI' : 'Ask AI'}
+        {open ? 'Hide AI' : readOnly ? 'View thread' : 'Ask AI'}
       </button>
 
       {open && (
         <div className="flex flex-col gap-3 rounded-lg p-3" style={{ background: surface2, border: `1px solid ${border}` }}>
+          {!readOnly ? (
           <div className="flex flex-wrap gap-1.5">
             {PRESETS.map(p => (
               <button
@@ -119,6 +121,7 @@ export function ArtifactChatPanel({ itemId, chartType }: Props) {
               </button>
             ))}
           </div>
+          ) : null}
 
           {retrievedCount > 0 && (
             <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-accent/5 text-accent border border-accent/20 self-start">
@@ -163,6 +166,7 @@ export function ArtifactChatPanel({ itemId, chartType }: Props) {
             <p className="text-[11px] font-mono" style={{ color: '#ef4444' }}>{error}</p>
           )}
 
+          {!readOnly ? (
           <form
             className="flex items-center gap-2"
             onSubmit={e => {
@@ -190,6 +194,7 @@ export function ArtifactChatPanel({ itemId, chartType }: Props) {
               <Send size={13} />
             </button>
           </form>
+          ) : null}
         </div>
       )}
     </div>

@@ -24,9 +24,10 @@ interface Props {
   item: WorkspaceItem;
   onChange: (item: WorkspaceItem) => void;
   onDelete: (id: string) => void;
+  readOnly?: boolean;
 }
 
-export function WorkspaceCard({ item, onChange, onDelete }: Props) {
+export function WorkspaceCard({ item, onChange, onDelete, readOnly = false }: Props) {
   const { isDark, surface, surface2, border, text, textMuted, textSubtle } = useTheme();
   const [title, setTitle] = useState(item.title);
   const [notes, setNotes] = useState(item.notes ?? '');
@@ -43,6 +44,7 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
   }, [item.id, item.title, item.notes]);
 
   async function persistView(patch: Partial<{ chartType: ChartType; width: WorkspaceWidth }>) {
+    if (readOnly) return;
     const nextConfig = { ...item.view_config, ...patch };
     const next = { ...item, view_config: nextConfig };
     onChange(next);
@@ -50,6 +52,7 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
   }
 
   async function persistTitle() {
+    if (readOnly) return;
     const trimmed = title.trim() || item.title;
     if (trimmed === item.title) return;
     const next = { ...item, title: trimmed };
@@ -58,6 +61,7 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
   }
 
   async function persistNotes() {
+    if (readOnly) return;
     const nextNotes = notes.trim() || null;
     if ((nextNotes ?? '') === (item.notes ?? '')) return;
     const next = { ...item, notes: nextNotes };
@@ -87,6 +91,7 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
             onChange={e => setTitle(e.target.value)}
             onBlur={persistTitle}
             onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            readOnly={readOnly}
             className="text-[15px] font-semibold bg-transparent outline-none truncate"
             style={{ color: text }}
           />
@@ -129,6 +134,8 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {!readOnly ? (
+            <>
           <button
             type="button"
             title={width === 'full' ? 'Half width' : 'Full width'}
@@ -168,14 +175,18 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
               <Trash2 size={14} />
             </button>
           )}
+            </>
+          ) : null}
         </div>
       </div>
 
-      <ChartTypeSwitcher
-        types={types}
-        value={types.includes(chartType) ? chartType : 'native'}
-        onChange={next => persistView({ chartType: next })}
-      />
+      {!readOnly ? (
+        <ChartTypeSwitcher
+          types={types}
+          value={types.includes(chartType) ? chartType : 'native'}
+          onChange={next => persistView({ chartType: next })}
+        />
+      ) : null}
 
       <div className="rounded-lg p-3" style={{ background: surface2, border: `1px solid ${border}` }}>
         {(types.includes(chartType) ? chartType : 'native') === 'native' ? (
@@ -197,7 +208,8 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
           onChange={e => setNotes(e.target.value)}
           onBlur={persistNotes}
           rows={2}
-          placeholder="Add a private note…"
+          readOnly={readOnly}
+          placeholder={readOnly ? 'No notes' : 'Add a private note…'}
           className="text-[12.5px] px-3 py-2 rounded-lg outline-none resize-y min-h-[56px]"
           style={{
             background: surface2,
@@ -210,6 +222,7 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
       <ArtifactChatPanel
         itemId={item.id}
         chartType={types.includes(chartType) ? chartType : 'native'}
+        readOnly={readOnly}
       />
     </div>
   );

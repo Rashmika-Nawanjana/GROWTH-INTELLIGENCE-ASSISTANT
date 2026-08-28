@@ -19,6 +19,13 @@ function AuthForm() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
 
+  const nextPath = searchParams.get('next') ?? '/';
+
+  const callbackUrl = () => {
+    const next = encodeURIComponent(nextPath);
+    return `${window.location.origin}/auth/callback?next=${next}`;
+  };
+
   useEffect(() => {
     if (searchParams.get('error')) {
       setError('Authentication failed. Please try again.');
@@ -31,7 +38,7 @@ function AuthForm() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: callbackUrl(),
       },
     });
     if (error) {
@@ -50,7 +57,7 @@ function AuthForm() {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        options: { emailRedirectTo: callbackUrl() },
       });
       if (error) {
         setError(error.message);
@@ -62,7 +69,7 @@ function AuthForm() {
       if (error) {
         setError(error.message);
       } else {
-        router.push('/');
+        router.push(nextPath.startsWith('/') ? nextPath : '/');
         router.refresh();
       }
     }

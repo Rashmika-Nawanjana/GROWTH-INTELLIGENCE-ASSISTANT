@@ -11,6 +11,7 @@ import { isWorkspaceRagEnabled } from '@/lib/workspace/rag-config';
 import { retrieveWorkspaceChunksWithTimeout } from '@/lib/workspace/retrieve';
 import { runWithUsageLedger } from '@/lib/observability/usage-ledger';
 import { flushLangfuse, runWithLangfuseTrace } from '@/lib/observability/langfuse';
+import { canWriteWorkspaceRole, getWorkspaceAccessRole } from '@/lib/workspace/access';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -123,11 +124,19 @@ export async function POST(req: NextRequest) {
     .from('workspace_items')
     .select('*')
     .eq('id', itemId)
-    .eq('user_id', user.id)
     .single();
 
   if (itemError || !item) {
     return jsonError('Workspace item not found', 404);
+  }
+
+  const workspaceId = item.workspace_id as string | null;
+  const accessRole = await getWorkspaceAccessRole(supabase, workspaceId);
+  if (!accessRole) {
+    return jsonError('Workspace item not found', 404);
+  }
+  if (!canWriteWorkspaceRole(accessRole)) {
+    return jsonError('View-only access — cannot post to this artifact thread', 403);
   }
 
   const payload = item.payload as AgentOutput;

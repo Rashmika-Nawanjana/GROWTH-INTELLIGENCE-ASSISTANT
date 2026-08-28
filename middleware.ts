@@ -27,18 +27,23 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
   const isAuthRoute = pathname.startsWith('/auth');
+  const isInviteRoute = pathname.startsWith('/invite');
+  const isPublicRoute = isAuthRoute || isInviteRoute;
 
-  if (!user && !isAuthRoute) {
+  if (!user && !isPublicRoute) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth';
+    url.searchParams.set('next', pathname + search);
     return NextResponse.redirect(url);
   }
 
   if (user && isAuthRoute && !pathname.startsWith('/auth/callback')) {
+    const next = request.nextUrl.searchParams.get('next');
     const url = request.nextUrl.clone();
-    url.pathname = '/';
+    url.pathname = next && next.startsWith('/') ? next.split('?')[0] : '/';
+    url.search = next && next.includes('?') ? next.slice(next.indexOf('?')) : '';
     return NextResponse.redirect(url);
   }
 
