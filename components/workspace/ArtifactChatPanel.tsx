@@ -28,6 +28,7 @@ export function ArtifactChatPanel({ itemId, chartType }: Props) {
   const [loading, setLoading] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retrievedCount, setRetrievedCount] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +77,8 @@ export function ArtifactChatPanel({ itemId, chartType }: Props) {
         created_at: new Date().toISOString(),
       };
       setMessages(prev => [...prev, assistant]);
+      const sectionCount = Number(data.retrievedSectionCount ?? 0);
+      if (sectionCount > 0) setRetrievedCount(sectionCount);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Request failed');
       setMessages(prev => prev.filter(m => m.id !== optimistic.id));
@@ -116,6 +119,12 @@ export function ArtifactChatPanel({ itemId, chartType }: Props) {
               </button>
             ))}
           </div>
+
+          {retrievedCount > 0 && (
+            <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded bg-accent/5 text-accent border border-accent/20 self-start">
+              Retrieved {retrievedCount} section{retrievedCount === 1 ? '' : 's'}
+            </span>
+          )}
 
           <div className="flex flex-col gap-2 max-h-56 overflow-y-auto">
             {loadingHistory && (

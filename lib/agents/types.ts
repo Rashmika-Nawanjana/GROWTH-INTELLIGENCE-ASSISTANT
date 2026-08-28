@@ -1,3 +1,5 @@
+import type { UsageBreakdown } from '@/lib/observability/types';
+
 // ─── Source citation ──────────────────────────────────────────────────────────
 export interface AgentSource {
   url: string;
@@ -259,6 +261,15 @@ export interface RunMetrics {
   droppedIrrelevantCount?: number;
   /** Local entities discovered by the research planner. */
   localEntityCount?: number;
+  /** Full usage breakdown from in-process ledger. */
+  usage?: UsageBreakdown;
+  /** Cost from measured tokens when available. */
+  actualCostUsd?: number;
+  costBasis?: 'measured' | 'estimated';
+  inputTokens?: number;
+  outputTokens?: number;
+  traceId?: string;
+  traceUrl?: string;
 }
 
 export interface OrchestratorOutput {

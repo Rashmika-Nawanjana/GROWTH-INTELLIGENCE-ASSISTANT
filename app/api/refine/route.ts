@@ -1,9 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { runOrchestration } from '@/lib/agents/orchestrate-entry';
 import { buildRefinementDeltas } from '@/lib/agents/refine-utils';
 import { getPastOutcomes } from '@/lib/memory-store';
+import { runWithUsageLedger } from '@/lib/observability/usage-ledger';
+import { flushLangfuse, runWithLangfuseTrace } from '@/lib/observability/langfuse';
 import type {
   ConversationMessage,
   ExecutionPlanOutput,
@@ -132,17 +134,39 @@ export async function POST(req: NextRequest) {
 
   let refinedOutput: OrchestratorOutput;
   try {
-    refinedOutput = await runOrchestration(
-      refinedQuery,
-      history,
-      undefined,
-      [],
-      undefined,
+    const { result } = await runWithLangfuseTrace(
       {
-        injectedContext: feedbackSummary,
-        forceExecution: true,
+        name: 'refine-orchestration',
+        input: { query: refinedQuery.slice(0, 200), focus: body.focus },
+        userId: user.id,
+        sessionId: body.sessionId,
+        tags: ['refine'],
+        asType: 'chain',
+      },
+      async () => {
+        const output = await runWithUsageLedger(
+          {
+            sessionId: body.sessionId,
+            userId: user.id,
+            queryPreview: refinedQuery.slice(0, 120),
+          },
+          () => runOrchestration(
+            refinedQuery,
+            history,
+            undefined,
+            [],
+            undefined,
+            {
+              injectedContext: feedbackSummary,
+              forceExecution: true,
+              userId: user.id,
+            },
+          ),
+        );
+        return output;
       },
     );
+    refinedOutput = result;
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'refine orchestration error';
     return NextResponse.json(
@@ -179,6 +203,8 @@ export async function POST(req: NextRequest) {
         : 'The refined run completed without an execution-plan artifact (execution may have been skipped or errored).';
     return NextResponse.json({ ok: false, error: why }, { status: 500 });
   }
+
+  after(async () => { await flushLangfuse(); });
 
   return NextResponse.json({
     ok: true,

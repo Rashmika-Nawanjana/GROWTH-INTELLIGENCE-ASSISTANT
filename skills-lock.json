@@ -61,6 +61,12 @@
       "sourceType": "github",
       "computedHash": "3b6e763faa077750ef596d53c1be431e61c66a28591c3092c54c94162deac1e8"
     },
+    "langfuse": {
+      "source": "langfuse/skills",
+      "sourceType": "github",
+      "skillPath": "skills/langfuse/SKILL.md",
+      "computedHash": "2a807f8d1b1f8dd60abc7a95ca01025f5fdf757b0bfcc6b6407b91280bba3b26"
+    },
     "mcp-builder": {
       "source": "anthropics/skills",
       "sourceType": "github",

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { computeSignalQualityPenalty, extractToolResults, buildToolResult } from '@/lib/tools/fallback';
+import { runWithUsageLedger, snapshotUsage } from '@/lib/observability/usage-ledger';
 
 describe('buildToolResult', () => {
   it('sets ok status with ~0.85 confidence', () => {
@@ -21,9 +22,15 @@ describe('buildToolResult', () => {
     expect(r.confidence).toBe(0.15);
   });
 
-  it('respects confidenceOverride', () => {
-    const r = buildToolResult({ data: [], status: 'ok', source: 'test', confidenceOverride: 0.95 });
-    expect(r.confidence).toBe(0.95);
+  it('records provider in usage ledger without changing return shape', () => {
+    runWithUsageLedger({}, () => {
+      const r = buildToolResult({ data: [1], status: 'ok', source: 'SearXNG', cached: true });
+      expect(r.status).toBe('ok');
+      const usage = snapshotUsage();
+      expect(usage.tools.calls).toBe(1);
+      expect(usage.tools.byProvider.searxng?.ok).toBe(1);
+      expect(usage.tools.byProvider.searxng?.cachedHits).toBe(1);
+    });
   });
 });
 

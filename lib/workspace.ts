@@ -227,7 +227,15 @@ export async function addToWorkspace(input: AddToWorkspaceInput): Promise<Worksp
     .update({ updated_at: new Date().toISOString() })
     .eq('id', input.workspaceId);
 
-  return mapRow(data as Record<string, unknown>);
+  const item = mapRow(data as Record<string, unknown>);
+
+  void fetch('/api/workspace/index', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId: item.id }),
+  }).catch(() => {});
+
+  return item;
 }
 
 export async function listWorkspaceItems(workspaceId?: string | null): Promise<WorkspaceItem[]> {
@@ -253,6 +261,15 @@ export async function listWorkspaceItems(workspaceId?: string | null): Promise<W
     return [];
   }
   return (data ?? []).map(row => mapRow(row as Record<string, unknown>));
+}
+
+/** Fire-and-forget re-index after notes or payload metadata change. */
+export function requestWorkspaceIndex(itemId: string): void {
+  void fetch('/api/workspace/index', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemId }),
+  }).catch(() => {});
 }
 
 export async function updateWorkspaceItem(

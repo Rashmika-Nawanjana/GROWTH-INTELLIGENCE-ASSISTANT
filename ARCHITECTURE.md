@@ -554,6 +554,14 @@ Supabase Auth + Next middleware. Chat and expensive APIs require a signed-in use
 - **Guardrail:** retrieved evidence is labeled *context only* and never increments `relevantSourceCount` in the evidence gate — live tools remain the verification layer.
 - **Flag:** `EVIDENCE_RAG_ENABLED=true` (+ `GEMINI_API_KEY` for embeddings). MCP tool: `search_evidence`.
 
+### Workspace Artifact RAG (pinned artifact semantic search)
+
+- Migration: `supabase/migrations/008_workspace_artifact_rag.sql` — `workspace_artifact_chunks` with pgvector HNSW index.
+- **Write path:** on pin (`addToWorkspace`) and notes update, `indexWorkspaceArtifact()` chunks facts, interpretation, domain fields, sources, and notes; embeds via Gemini 768-d.
+- **Read path:** `/api/workspace/explain` retrieves item-scoped + board-scoped chunks in parallel with Evidence RAG (`retrieveEvidenceWithTimeout`).
+- **FAISS equivalent:** pgvector `match_workspace_chunks` RPC — same embed-query → nearest-neighbor pattern as the HF Datasets + FAISS course, but durable in Postgres for serverless.
+- **Flag:** `WORKSPACE_RAG_ENABLED=true`. UI shows "Retrieved N sections" in `ArtifactChatPanel`.
+
 ---
 
 ## 17. Feedback → refine closed loop
@@ -711,6 +719,26 @@ Before writing code, read in this order:
 3. *What should Vector Agents build or reposition over the next six months to capture emerging demand?*  
 
 Then generalise to a second product to prove the system is not hard-coded to Vector.
+
+---
+
+## Observability (usage ledger + Langfuse)
+
+Two complementary layers power the **API Usage** tab:
+
+| Layer | Purpose | When active |
+|-------|---------|-------------|
+| **In-process ledger** (`lib/observability/usage-ledger.ts`) | Real token counts, per-provider tool health, embedding costs — instant in-app metrics | Always (AsyncLocalStorage per request) |
+| **Langfuse** (`instrumentation.ts` + `@langfuse/langchain`) | Full trace tree, dashboard drill-down, session history | `LANGFUSE_ENABLED=true` + keys |
+
+**Instrumentation choke points:**
+
+- `lib/llm/generate.ts` — every LangChain `model.invoke()` records `usage_metadata` tokens
+- `lib/agents/gemini.ts` — embedding calls with purpose tags
+- `lib/tools/fallback.ts` — `buildToolResult` records provider + ok/degraded/failed
+- `app/api/chat/route.ts` — root trace, `metrics_update` stream chunk, `run_usage` persistence (migration 009)
+
+Env: `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_BASE_URL`. Optional cost overrides: `LLM_PRICE_INPUT_PER_M`, `LLM_PRICE_OUTPUT_PER_M`, `EMBED_PRICE_PER_M`.
 
 ---
 

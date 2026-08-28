@@ -6,6 +6,8 @@ import type {
 } from '../types';
 import type { OrchestrateOptions } from '../orchestrator';
 import { buildOrchestratorGraph } from './graph';
+import { getLangchainCallbacks } from '@/lib/observability/langfuse';
+import { getOrchestratorBackend } from '@/lib/agents/orchestrator-backend';
 
 /**
  * LangGraph-backed orchestrator with the same signature as legacy `orchestrate`.
@@ -27,6 +29,26 @@ export async function orchestrateLangGraph(
   // LangSmith auto-traces when LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY.
   // Tags/metadata only attach when tracing is on; safe no-op otherwise.
   const tracingEnabled = process.env.LANGCHAIN_TRACING_V2 === 'true';
+  const langfuseCallbacks = await getLangchainCallbacks({
+    userId: options?.userId,
+    tags: ['orchestrator', 'langgraph'],
+  });
+
+  const invokeConfig = tracingEnabled || langfuseCallbacks.length > 0
+    ? {
+        runName: 'orchestrateLangGraph',
+        tags: ['orchestrator', 'langgraph'],
+        metadata: {
+          queryPreview: query.slice(0, 120),
+          historyLength: history.length,
+          hasImages: images.length > 0,
+          hasMemory: Boolean(memoryContext),
+          orchestratorBackend: getOrchestratorBackend(),
+        },
+        callbacks: langfuseCallbacks as never[],
+      }
+    : undefined;
+
   const finalState = await graph.invoke(
     {
       query,
@@ -36,18 +58,7 @@ export async function orchestrateLangGraph(
       options,
       orchestrationStart: Date.now(),
     },
-    tracingEnabled
-      ? {
-          runName: 'orchestrateLangGraph',
-          tags: ['orchestrator', 'langgraph'],
-          metadata: {
-            queryPreview: query.slice(0, 120),
-            historyLength: history.length,
-            hasImages: images.length > 0,
-            hasMemory: Boolean(memoryContext),
-          },
-        }
-      : undefined,
+    invokeConfig,
   );
 
   if (!finalState.result) {

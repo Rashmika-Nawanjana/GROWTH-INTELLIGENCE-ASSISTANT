@@ -76,6 +76,7 @@ Before flipping `ORCHESTRATOR_BACKEND=langgraph` in production:
 
 Already available without flipping the default:
 
-- **LangSmith:** set `LANGCHAIN_TRACING_V2=true` + `LANGCHAIN_API_KEY` (+ optional `LANGCHAIN_PROJECT`). Graph invokes are tagged `orchestrator` / `langgraph`.
+- **LangSmith:** set `LANGCHAIN_TRACING_V2=true` + `LANGCHAIN_API_KEY` (+ optional `LANGCHAIN_PROJECT`). Graph invokes are tagged `orchestrator` / `langgraph`. LangGraph-only; optional.
+- **Langfuse:** set `LANGFUSE_ENABLED=true` + `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` (+ optional `LANGFUSE_BASE_URL`). Covers the full app (LLM, tools, embeddings). See `lib/observability/` and `instrumentation.ts`.
 - **Tool wrappers:** `lib/tools/langchain-tools.ts` exposes LangChain `tool()` adapters around SerpAPI / Firecrawl / Reddit / HN. Agents still call `lib/tools` directly today.
 - **Structured output helpers** for classify/synthesize remain a follow-up once the graph path is trusted.

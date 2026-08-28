@@ -7,13 +7,23 @@ import {
 import { createClient } from '@/lib/supabase-server';
 import { toolGetPastOutcomesForChat } from '@/lib/mcp/memory-tools';
 import { indexRunEvidence, isEvidenceRagEnabled } from '@/lib/evidence';
-import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment, AgentOutput } from '../../../lib/agents/types';
+import { getOrchestratorBackend } from '@/lib/agents/orchestrator-backend';
+import { enrichRunMetrics } from '@/lib/observability/build-metrics';
+import { flushLangfuse, runWithLangfuseTrace } from '@/lib/observability/langfuse';
+import { getLiveLedgerCounts, runWithUsageLedger } from '@/lib/observability/usage-ledger';
+import { persistRunUsage } from '@/lib/observability/persist-run';
+import type {
+  ConversationMessage,
+  AgentRun,
+  OrchestratorOutput,
+  ImageAttachment,
+  AgentOutput,
+  RunMetrics,
+} from '../../../lib/agents/types';
 
 export const runtime = 'nodejs';
-// Vercel Pro: up to 120s (config). Hobby plan still enforces ~60s wall clock — keep Apify wait (APIFY_MAX_WAIT_SECS) low enough to finish.
 export const maxDuration = 120;
 
-// ── Streaming chunk types ─────────────────────────────────────────────────────
 interface LiveMetrics {
   elapsedMs: number;
   agentCount: number;
@@ -23,20 +33,18 @@ interface LiveMetrics {
   estimatedCostUsd: number;
   geminiCallCount: number;
   toolCallCount: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 
 type StreamChunk =
   | { type: 'agent_update'; run: AgentRun; metrics: LiveMetrics }
   | { type: 'orchestration_log'; line: string }
   | { type: 'result'; output: OrchestratorOutput }
+  | { type: 'metrics_update'; metrics: RunMetrics }
   | { type: 'mirofish_result'; output: AgentOutput }
   | { type: 'mirofish_live_result'; output: AgentOutput }
   | { type: 'error'; message: string };
-
-// Mirror of orchestrator cost model — kept cheap and only used for the
-// live per-chunk cost readout the UI shows while agents are running. The
-// authoritative cost lands in the final `result` chunk.
-const LIVE_COST_PER_AGENT = (2000 * (0.1 / 1_000_000)) + (1000 * (0.4 / 1_000_000));
 
 function encode(chunk: StreamChunk): string {
   return `data: ${JSON.stringify(chunk)}\n\n`;
@@ -50,10 +58,6 @@ function jsonError(message: string, status: number): Response {
 }
 
 export async function POST(req: NextRequest) {
-  // ── Auth gate (parity with /api/feedback, /api/refine, /api/recall) ─────────
-  // Orchestration spends real tokens and hits live APIs on every invocation,
-  // so the endpoint must require a signed-in Supabase user before any work
-  // starts. Unauthenticated callers get 401 *before* the stream opens.
   const supabase = await createClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
   if (authError || !user) {
@@ -78,7 +82,17 @@ export async function POST(req: NextRequest) {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const { query, history = [], images = [], memoryContext, sessionId, includeMirofish = false, includeMirofishLive = false, followUpMode = 'full', selectedAgents = [] } = body;
+  const {
+    query,
+    history = [],
+    images = [],
+    memoryContext,
+    sessionId,
+    includeMirofish = false,
+    includeMirofishLive = false,
+    followUpMode = 'full',
+    selectedAgents = [],
+  } = body;
 
   if (!query?.trim()) {
     return jsonError('query is required', 400);
@@ -96,10 +110,6 @@ export async function POST(req: NextRequest) {
     try { controller.enqueue(encoder.encode(encode(chunk))); } catch { /* stream closed */ }
   };
 
-  // Live metrics accumulator — lets the UI show running cost + latency +
-  // completed-agent count as agents finish. The authoritative RunMetrics
-  // object (with per-agent latencies and Gemini-call totals) lands on the
-  // final `result` chunk.
   const orchestrationStart = Date.now();
   const liveAgentState = new Map<string, AgentRun['status']>();
 
@@ -112,126 +122,181 @@ export async function POST(req: NextRequest) {
       else if (status === 'failed') failed += 1;
       else if (status === 'running') running += 1;
     }
-    // Each finished agent (completed or failed) = ~1 Gemini call for the
-    // live readout. The final total also covers classification + synthesis
-    // + mind map, which only land on the `result` chunk.
-    const billedCalls = completed + failed + 1; // +1 classifier call
-    const estimatedToolCalls = (completed + failed) * 3;
+    const ledger = getLiveLedgerCounts();
     return {
       elapsedMs: Date.now() - orchestrationStart,
       agentCount: liveAgentState.size,
       completedAgentCount: completed,
       failedAgentCount: failed,
       runningAgentCount: running,
-      estimatedCostUsd: Number.parseFloat((billedCalls * LIVE_COST_PER_AGENT).toFixed(5)),
-      geminiCallCount: billedCalls,
-      toolCallCount: estimatedToolCalls,
+      estimatedCostUsd: ledger.estimatedCostUsd,
+      geminiCallCount: ledger.geminiCallCount || completed + failed + 1,
+      toolCallCount: ledger.toolCallCount,
+      inputTokens: ledger.inputTokens,
+      outputTokens: ledger.outputTokens,
     };
   };
 
-  // Run orchestration in background, stream updates to frontend
+  const emitMetricsUpdate = (base?: RunMetrics) => {
+    const partial: RunMetrics = base ?? {
+      totalLatencyMs: Date.now() - orchestrationStart,
+      agentLatencies: {},
+      estimatedCostUsd: 0,
+      toolCallCount: 0,
+      geminiCallCount: 0,
+      agentCount: liveAgentState.size,
+      completedAgentCount: 0,
+      failedAgentCount: 0,
+    };
+    const metrics = enrichRunMetrics({
+      ...partial,
+      totalLatencyMs: Date.now() - orchestrationStart,
+    });
+    write({ type: 'metrics_update', metrics });
+    return metrics;
+  };
+
   (async () => {
     try {
-      write({ type: 'orchestration_log', line: 'Starting orchestration…' });
-
-      let injectedContext: string | undefined;
-      if (sessionId) {
-        const outcomes = await toolGetPastOutcomesForChat(
-          { supabase, userId: user.id },
-          sessionId,
-        );
-        if (outcomes.summaryBlock.trim()) {
-          injectedContext = outcomes.summaryBlock;
-          write({ type: 'orchestration_log', line: 'Loaded prior feedback and variant outcomes for this session.' });
-        }
-      }
-
-      // ── Stage 1+2: 6 research agents (+ execution engine if needed) ────────
-      const result = await runOrchestration(
-        query,
-        history,
-        (agentRun: AgentRun) => {
-          liveAgentState.set(agentRun.agentId, agentRun.status);
-          write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
-        },
-        images,
-        memoryContext,
+      await runWithLangfuseTrace(
         {
-          followUpMode,
-          selectedAgents,
-          injectedContext,
+          name: 'chat-orchestration',
+          input: { query: query.slice(0, 200) },
           userId: user.id,
-          onOrchestrationLog: (line: string) => write({ type: 'orchestration_log', line }),
+          sessionId,
+          tags: ['chat', getOrchestratorBackend()],
+          metadata: { orchestratorBackend: getOrchestratorBackend() },
+          asType: 'agent',
         },
-        supabase,
-      );
-      // Send main result — frontend renders immediately, no need to wait for MiroFish
-      write({ type: 'result', output: result });
-
-      if (isEvidenceRagEnabled()) {
-        after(async () => {
-          try {
-            await indexRunEvidence(supabase, {
+        async () => {
+          await runWithUsageLedger(
+            {
+              sessionId,
               userId: user.id,
-              outputs: result.outputs,
-              classification: {
-                product: result.product,
-                category: undefined,
-                geography: undefined,
-              },
-            });
-          } catch (err) {
-            console.error('[evidence index after]', err instanceof Error ? err.message : err);
-          }
-        });
-      }
-
-      // ── MiroFish Synthetic (opt-in): runs AFTER main result ────────────────
-      if (includeMirofish) {
-        try {
-          const mirofishOutput = await runMirofishAgent(
-            query,
-            history,
-            (agentRun: AgentRun) => {
-              liveAgentState.set(agentRun.agentId, agentRun.status);
-              write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
+              queryPreview: query.slice(0, 120),
             },
-            images,
-            memoryContext,
-            (line: string) => write({ type: 'orchestration_log', line }),
-          );
-          if (mirofishOutput) {
-            write({ type: 'mirofish_result', output: mirofishOutput });
-          }
-        } catch {
-          // non-fatal
-        }
-      }
+            async () => {
+              write({ type: 'orchestration_log', line: 'Starting orchestration…' });
 
-      // ── MiroFish Live VPS (opt-in): runs AFTER main result ─────────────────
-      if (includeMirofishLive) {
-        try {
-          const mirofishLiveOutput = await runMirofishLiveAgent(
-            query,
-            history,
-            (agentRun: AgentRun) => {
-              liveAgentState.set(agentRun.agentId, agentRun.status);
-              write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
+              let injectedContext: string | undefined;
+              if (sessionId) {
+                const outcomes = await toolGetPastOutcomesForChat(
+                  { supabase, userId: user.id },
+                  sessionId,
+                );
+                if (outcomes.summaryBlock.trim()) {
+                  injectedContext = outcomes.summaryBlock;
+                  write({ type: 'orchestration_log', line: 'Loaded prior feedback and variant outcomes for this session.' });
+                }
+              }
+
+              const result = await runOrchestration(
+                query,
+                history,
+                (agentRun: AgentRun) => {
+                  liveAgentState.set(agentRun.agentId, agentRun.status);
+                  write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
+                },
+                images,
+                memoryContext,
+                {
+                  followUpMode,
+                  selectedAgents,
+                  injectedContext,
+                  userId: user.id,
+                  onOrchestrationLog: (line: string) => write({ type: 'orchestration_log', line }),
+                },
+                supabase,
+              );
+
+              write({ type: 'result', output: result });
+              let latestMetrics = result.metrics;
+
+              if (isEvidenceRagEnabled()) {
+                after(async () => {
+                  try {
+                    await indexRunEvidence(supabase, {
+                      userId: user.id,
+                      outputs: result.outputs,
+                      classification: {
+                        product: result.product,
+                        category: undefined,
+                        geography: undefined,
+                      },
+                    });
+                  } catch (err) {
+                    console.error('[evidence index after]', err instanceof Error ? err.message : err);
+                  }
+                });
+              }
+
+              if (includeMirofish) {
+                try {
+                  const mirofishOutput = await runMirofishAgent(
+                    query,
+                    history,
+                    (agentRun: AgentRun) => {
+                      liveAgentState.set(agentRun.agentId, agentRun.status);
+                      write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
+                    },
+                    images,
+                    memoryContext,
+                    (line: string) => write({ type: 'orchestration_log', line }),
+                  );
+                  if (mirofishOutput) {
+                    write({ type: 'mirofish_result', output: mirofishOutput });
+                  }
+                } catch {
+                  // non-fatal
+                }
+              }
+
+              if (includeMirofishLive) {
+                try {
+                  const mirofishLiveOutput = await runMirofishLiveAgent(
+                    query,
+                    history,
+                    (agentRun: AgentRun) => {
+                      liveAgentState.set(agentRun.agentId, agentRun.status);
+                      write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
+                    },
+                    images,
+                    memoryContext,
+                    (line: string) => write({ type: 'orchestration_log', line }),
+                  );
+                  if (mirofishLiveOutput) {
+                    write({ type: 'mirofish_live_result', output: mirofishLiveOutput });
+                  }
+                } catch {
+                  // non-fatal
+                }
+              }
+
+              latestMetrics = emitMetricsUpdate(latestMetrics);
+
+              after(async () => {
+                await flushLangfuse();
+                if (latestMetrics && sessionId) {
+                  try {
+                    await persistRunUsage(supabase, {
+                      userId: user.id,
+                      sessionId,
+                      queryPreview: query.slice(0, 200),
+                      metrics: latestMetrics,
+                    });
+                  } catch (err) {
+                    console.error('[persistRunUsage]', err instanceof Error ? err.message : err);
+                  }
+                }
+              });
             },
-            images,
-            memoryContext,
-            (line: string) => write({ type: 'orchestration_log', line }),
           );
-          if (mirofishLiveOutput) {
-            write({ type: 'mirofish_live_result', output: mirofishLiveOutput });
-          }
-        } catch {
-          // non-fatal
-        }
-      }
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Internal error';
       write({ type: 'error', message });
+      after(async () => { await flushLangfuse(); });
     } finally {
       try { controller.close(); } catch { /* already closed */ }
     }

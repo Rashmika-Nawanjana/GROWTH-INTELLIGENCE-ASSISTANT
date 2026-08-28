@@ -13,6 +13,7 @@ import {
   generateMindMap,
   synthesize,
 } from '../orchestrator';
+import { enrichRunMetrics } from '@/lib/observability/build-metrics';
 import {
   applyPlanToContext,
   buildResearchPlan,
@@ -445,7 +446,7 @@ export function createFinalizeNode(callbacks: OrchestratorCallbacks) {
         (plan?.scrapedCount ?? 0) ||
       completedAgents * 3;
 
-    const metrics: RunMetrics = {
+    const metrics: RunMetrics = enrichRunMetrics({
       totalLatencyMs: Date.now() - state.orchestrationStart,
       agentLatencies: state.agentLatencies,
       estimatedCostUsd: Number.parseFloat((modelCallCount * EST_COST_PER_MODEL_CALL).toFixed(5)),
@@ -465,7 +466,7 @@ export function createFinalizeNode(callbacks: OrchestratorCallbacks) {
         0,
       ),
       localEntityCount: plan?.localEntities.length ?? 0,
-    };
+    });
 
     const result = {
       query: state.query,

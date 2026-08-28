@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
 
-  const embedding = await embedText(content);
+  const embedding = await embedText(content, 'embed-api');
   if (!embedding) {
     // Embedding model unavailable (quota, region, or key scope) — skip indexing silently.
     // The chat system works without semantic recall; embeddings are a background enhancement only.

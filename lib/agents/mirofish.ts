@@ -73,7 +73,7 @@ Critical rules:
 
 Reply with ONLY the rephrased question string, no JSON, no preamble.`;
 
-  const result = await generateHuggingFaceText(prompt, { maxNewTokens: 160, temperature: 0.2 });
+  const result = await generateHuggingFaceText(prompt, { maxNewTokens: 160, temperature: 0.2, stage: 'mirofish' });
   return result.trim() || query;
 }
 

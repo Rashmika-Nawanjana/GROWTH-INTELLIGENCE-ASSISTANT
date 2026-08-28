@@ -1,5 +1,9 @@
 import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { createGoogleChatModel } from './providers/google';
+import { getLangchainCallbacks } from '@/lib/observability/langfuse';
+import { estimateTokensFromChars } from '@/lib/observability/pricing';
+import { recordLlmCall } from '@/lib/observability/usage-ledger';
+import type { UsageStage } from '@/lib/observability/types';
+import { createGoogleChatModel, resolveGoogleProviderConfig } from './providers/google';
 import type { LlmGenerateOptions } from './types';
 
 const DEFAULT_TEXT_MAX_OUTPUT = 2048;
@@ -42,6 +46,65 @@ function parseJsonLoose<T>(text: string): T {
   }
 }
 
+type UsageMeta = {
+  inputChars: number;
+  outputChars: number;
+};
+
+function extractUsageFromResult(
+  result: { usage_metadata?: { input_tokens?: number; output_tokens?: number } },
+  meta: UsageMeta,
+): { inputTokens: number; outputTokens: number; tokensEstimated: boolean } {
+  const u = result.usage_metadata;
+  if (u && (u.input_tokens != null || u.output_tokens != null)) {
+    return {
+      inputTokens: u.input_tokens ?? 0,
+      outputTokens: u.output_tokens ?? 0,
+      tokensEstimated: false,
+    };
+  }
+  return {
+    inputTokens: estimateTokensFromChars(meta.inputChars),
+    outputTokens: estimateTokensFromChars(meta.outputChars),
+    tokensEstimated: true,
+  };
+}
+
+async function invokeWithUsage(
+  model: Awaited<ReturnType<typeof createGoogleChatModel>>,
+  messages: InstanceType<typeof HumanMessage | typeof SystemMessage>[],
+  options: LlmGenerateOptions,
+  inputChars: number,
+) {
+  const stage: UsageStage = options.stage ?? 'agent';
+  const resolvedModel = resolveGoogleProviderConfig(options).model;
+  const callbacks = await getLangchainCallbacks({ stage });
+  const t0 = Date.now();
+
+  const result = await model.invoke(messages, {
+    callbacks: callbacks as never[],
+    runName: stage,
+  });
+
+  const outputText = messageContentToText(result.content);
+  const usage = extractUsageFromResult(result, {
+    inputChars,
+    outputChars: outputText.length,
+  });
+
+  recordLlmCall({
+    stage,
+    model: resolvedModel,
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    latencyMs: Date.now() - t0,
+    ok: true,
+    tokensEstimated: usage.tokensEstimated,
+  });
+
+  return result;
+}
+
 /**
  * Plain-text generation via LangChain ChatGoogle (Gemini API or Vertex).
  */
@@ -55,7 +118,12 @@ export async function generateText(
   });
 
   try {
-    const result = await model.invoke([new HumanMessage(prompt)]);
+    const result = await invokeWithUsage(
+      model,
+      [new HumanMessage(prompt)],
+      options,
+      prompt.length,
+    );
     return messageContentToText(result.content);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -65,15 +133,12 @@ export async function generateText(
 
 /**
  * JSON generation. Uses responseSchema so the provider sets application/json.
- * Gaps vs legacy raw Gemini fetch: some thinkingConfig edge cases may differ by
- * LangChain version; prefer thinkingBudget=0 for structured agent outputs.
  */
 export async function generateJson<T = Record<string, unknown>>(
   systemPrompt: string,
   userPrompt: string,
   options: LlmGenerateOptions = {},
 ): Promise<T> {
-  // Permissive object schema forces JSON MIME type without constraining fields.
   const model = await createGoogleChatModel({
     ...options,
     maxNewTokens: options.maxNewTokens ?? DEFAULT_JSON_MAX_OUTPUT,
@@ -83,11 +148,18 @@ export async function generateJson<T = Record<string, unknown>>(
     },
   });
 
+  const inputChars = systemPrompt.length + userPrompt.length;
+
   try {
-    const result = await model.invoke([
-      new SystemMessage(systemPrompt.trim()),
-      new HumanMessage(userPrompt.trim()),
-    ]);
+    const result = await invokeWithUsage(
+      model,
+      [
+        new SystemMessage(systemPrompt.trim()),
+        new HumanMessage(userPrompt.trim()),
+      ],
+      options,
+      inputChars,
+    );
 
     const text = messageContentToText(result.content);
     if (!text) {
@@ -95,7 +167,6 @@ export async function generateJson<T = Record<string, unknown>>(
     }
     return parseJsonLoose<T>(text);
   } catch (err) {
-    // Fallback: single combined prompt without schema (still via LangChain).
     if (err instanceof Error && /JSON parse|empty JSON|responseSchema/i.test(err.message)) {
       const combined = `${systemPrompt.trim()}\n\n${userPrompt.trim()}\n\nRespond with valid JSON only.`;
       const { responseSchema: _omit, ...rest } = options;
@@ -103,6 +174,7 @@ export async function generateJson<T = Record<string, unknown>>(
         ...rest,
         maxNewTokens: options.maxNewTokens ?? DEFAULT_JSON_MAX_OUTPUT,
         temperature: options.temperature ?? 0.2,
+        stage: options.stage ?? 'agent',
       });
       return parseJsonLoose<T>(text);
     }

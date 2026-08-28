@@ -38,7 +38,7 @@ export async function recallSimilarTurns(
     }
   }
 
-  const embedding = await embedText(query);
+  const embedding = await embedText(query, 'memory-recall');
   if (!embedding) {
     return { hits: [], contextBlock: '' };
   }

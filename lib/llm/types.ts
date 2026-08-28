@@ -1,3 +1,5 @@
+import type { UsageStage } from '@/lib/observability/types';
+
 export type LlmProviderId = 'gemini' | 'vertex';
 
 export type LlmGenerateOptions = {
@@ -8,6 +10,8 @@ export type LlmGenerateOptions = {
   thinkingBudget?: number;
   /** When set, provider returns application/json matching this schema. */
   responseSchema?: Record<string, unknown>;
+  /** Usage ledger stage for cost attribution. */
+  stage?: UsageStage;
 };
 
 /** Google service-account key (subset used by google-auth-library). */

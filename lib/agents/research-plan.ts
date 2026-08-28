@@ -389,7 +389,7 @@ Rules:
 - gapQueries: up to 3 follow-up searches if evidence is thin (e.g. specific local org + pricing page).
 - applicableDomains: domains that can produce useful answers from these signals.
 - notes: short gaps / caveats.`,
-          { maxNewTokens: 900, temperature: 0.1 },
+          { maxNewTokens: 900, temperature: 0.1, stage: 'research-plan' },
         );
       } catch {
         parsed = {};

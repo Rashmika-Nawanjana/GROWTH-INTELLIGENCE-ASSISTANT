@@ -130,6 +130,7 @@ Produce a JSON object with this exact shape:
     parsed = await generateHuggingFaceJson<any>(systemPrompt, userPrompt, {
       maxNewTokens: 1800,
       temperature: 0.25,
+      stage: 'execution',
     });
   } catch {
     parsed = {

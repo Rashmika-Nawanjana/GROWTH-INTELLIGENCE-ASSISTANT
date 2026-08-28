@@ -442,6 +442,9 @@ export default function VeracityDashboard() {
     totalLatencyMs: 0,
     totalGeminiCalls: 0,
     totalToolCalls: 0,
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalEmbeddingCalls: 0,
   });
 
   const fileInputRef    = useRef<HTMLInputElement>(null);
@@ -716,17 +719,6 @@ export default function VeracityDashboard() {
             if (chunk.type === 'result') {
               const out: OrchestratorOutput = chunk.output;
               finalOutput = out;
-              if (out.metrics) {
-                setSessionUsage(prev => ({
-                  queries: prev.queries + 1,
-                  totalCostUsd: prev.totalCostUsd + out.metrics!.estimatedCostUsd,
-                  totalLatencyMs: prev.totalLatencyMs + out.metrics!.totalLatencyMs,
-                  totalGeminiCalls: prev.totalGeminiCalls + out.metrics!.geminiCallCount,
-                  totalToolCalls: prev.totalToolCalls + out.metrics!.toolCallCount,
-                }));
-              } else {
-                setSessionUsage(prev => ({ ...prev, queries: prev.queries + 1 }));
-              }
               // If mirofish was requested, mark it as running so the sidebar shows it
               if (selectedAgents.mirofish) {
                 setMirofishRunning(true);
@@ -769,6 +761,31 @@ export default function VeracityDashboard() {
                   ),
                   suggestions: out.suggestedFollowUps?.slice(0, 3),
                 } : m
+              ));
+            }
+
+            if (chunk.type === 'metrics_update' && chunk.metrics) {
+              const m = chunk.metrics;
+              setSessionUsage(prev => ({
+                queries: prev.queries + 1,
+                totalCostUsd: prev.totalCostUsd + (m.actualCostUsd ?? m.estimatedCostUsd),
+                totalLatencyMs: prev.totalLatencyMs + m.totalLatencyMs,
+                totalGeminiCalls: prev.totalGeminiCalls + m.geminiCallCount,
+                totalToolCalls: prev.totalToolCalls + m.toolCallCount,
+                totalInputTokens: prev.totalInputTokens + (m.inputTokens ?? 0),
+                totalOutputTokens: prev.totalOutputTokens + (m.outputTokens ?? 0),
+                totalEmbeddingCalls: prev.totalEmbeddingCalls + (m.usage?.embeddings.calls ?? 0),
+              }));
+              setMessages(prev => prev.map(msg =>
+                msg.id === assistantId && msg.orchestratorOutput
+                  ? {
+                      ...msg,
+                      orchestratorOutput: {
+                        ...msg.orchestratorOutput,
+                        metrics: m,
+                      },
+                    }
+                  : msg,
               ));
             }
 
@@ -994,17 +1011,6 @@ export default function VeracityDashboard() {
             const chunk = JSON.parse(line.slice(6));
             if (chunk.type === 'result') {
               const out: OrchestratorOutput = chunk.output;
-              if (out.metrics) {
-                setSessionUsage(prev => ({
-                  queries: prev.queries + 1,
-                  totalCostUsd: prev.totalCostUsd + out.metrics!.estimatedCostUsd,
-                  totalLatencyMs: prev.totalLatencyMs + out.metrics!.totalLatencyMs,
-                  totalGeminiCalls: prev.totalGeminiCalls + out.metrics!.geminiCallCount,
-                  totalToolCalls: prev.totalToolCalls + out.metrics!.toolCallCount,
-                }));
-              } else {
-                setSessionUsage(prev => ({ ...prev, queries: prev.queries + 1 }));
-              }
               const sources = filterDisplaySources(
                 out.outputs?.flatMap(o => o.sources?.map(s => ({ title: s.title, url: s.url, citationId: s.citationId })) ?? []) ?? [],
                 6,
@@ -1012,7 +1018,7 @@ export default function VeracityDashboard() {
               setFollowUps(prev => prev.map(f =>
                 f.id === fuId ? { ...f, answer: out.synthesizedAnswer, sources, loading: false } : f
               ));
-              
+
               if (currentSessionId) {
                 await saveMessage(currentSessionId, 'user', text, { isFollowUp: true });
                 await saveMessage(currentSessionId, 'assistant', out.synthesizedAnswer, {
@@ -1028,6 +1034,20 @@ export default function VeracityDashboard() {
                     .catch(() => {});
                 }
               }
+            }
+
+            if (chunk.type === 'metrics_update' && chunk.metrics) {
+              const m = chunk.metrics;
+              setSessionUsage(prev => ({
+                queries: prev.queries + 1,
+                totalCostUsd: prev.totalCostUsd + (m.actualCostUsd ?? m.estimatedCostUsd),
+                totalLatencyMs: prev.totalLatencyMs + m.totalLatencyMs,
+                totalGeminiCalls: prev.totalGeminiCalls + m.geminiCallCount,
+                totalToolCalls: prev.totalToolCalls + m.toolCallCount,
+                totalInputTokens: prev.totalInputTokens + (m.inputTokens ?? 0),
+                totalOutputTokens: prev.totalOutputTokens + (m.outputTokens ?? 0),
+                totalEmbeddingCalls: prev.totalEmbeddingCalls + (m.usage?.embeddings.calls ?? 0),
+              }));
             }
           } catch { /* skip */ }
         }
@@ -1047,7 +1067,16 @@ export default function VeracityDashboard() {
     setFollowUps([]);
     setExpandedDomain(null);
     setAttachedImages([]);
-    setSessionUsage({ queries: 0, totalCostUsd: 0, totalLatencyMs: 0, totalGeminiCalls: 0, totalToolCalls: 0 });
+    setSessionUsage({
+      queries: 0,
+      totalCostUsd: 0,
+      totalLatencyMs: 0,
+      totalGeminiCalls: 0,
+      totalToolCalls: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEmbeddingCalls: 0,
+    });
   };
   const getRunForDomain = (d: Domain) => {
     const runs = currentResult?.agentRuns ?? [];

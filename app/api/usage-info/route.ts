@@ -1,6 +1,8 @@
 import { createClient } from '@/lib/supabase-server';
 import { getLlmProviderId } from '@/lib/llm/providers/google';
 import { getOrchestratorBackend } from '@/lib/agents/orchestrator-backend';
+import { isLangfuseEnabled, getLangfuseBaseUrl } from '@/lib/observability/langfuse';
+import { getPricingTableForUi } from '@/lib/observability/pricing';
 
 function boolEnv(name: string): boolean {
   return Boolean(process.env[name]?.trim());
@@ -75,7 +77,15 @@ export async function GET() {
       kind: 'platform' as const,
       configured: langsmithConfigured,
       usageNote:
-        'LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY. Applies to LangGraph runs only.',
+        'LANGCHAIN_TRACING_V2=true + LANGCHAIN_API_KEY. Optional — LangGraph runs only. Langfuse covers the whole app.',
+    },
+    {
+      id: 'langfuse',
+      label: 'Langfuse observability',
+      kind: 'platform' as const,
+      configured: isLangfuseEnabled(),
+      usageNote:
+        'LANGFUSE_ENABLED=true + LANGFUSE_PUBLIC_KEY + LANGFUSE_SECRET_KEY. Full-app traces, tokens, and cost.',
     },
     { id: 'searxng', label: 'SearXNG (self-hosted discovery)', kind: 'tool' as const, configured: boolEnv('SEARXNG_BASE_URL'), usageNote: 'SEARXNG_BASE_URL — docker compose -f docker-compose.searxng.yml up -d. Preferred for searchWeb/searchNews.' },
     { id: 'serpapi', label: 'SerpAPI (web, news, trends)', kind: 'tool' as const, configured: boolEnv('SERPAPI_KEY'), usageNote: 'Fallback for searchWeb/news; required for Trends + Ads Transparency.' },
@@ -97,6 +107,13 @@ export async function GET() {
       configured: process.env.EVIDENCE_RAG_ENABLED === 'true' && boolEnv('GEMINI_API_KEY'),
       usageNote: 'EVIDENCE_RAG_ENABLED=true + migration 007. Indexes scraped pages and agent facts for follow-up recall.',
     },
+    {
+      id: 'workspace-rag',
+      label: 'Workspace Artifact RAG (pgvector)',
+      kind: 'platform' as const,
+      configured: process.env.WORKSPACE_RAG_ENABLED === 'true' && boolEnv('GEMINI_API_KEY'),
+      usageNote: 'WORKSPACE_RAG_ENABLED=true + migration 008. Semantic search over pinned artifacts for Ask AI.',
+    },
   ];
 
   return new Response(
@@ -107,6 +124,11 @@ export async function GET() {
         embeddingDimensions: Number(process.env.GEMINI_EMBEDDING_DIMENSIONS ?? 768),
         llmProvider,
         orchestratorBackend,
+      },
+      pricing: getPricingTableForUi(),
+      langfuse: {
+        enabled: isLangfuseEnabled(),
+        baseUrl: getLangfuseBaseUrl(),
       },
       providers,
     }),

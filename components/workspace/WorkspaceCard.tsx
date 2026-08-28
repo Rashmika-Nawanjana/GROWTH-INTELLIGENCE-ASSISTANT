@@ -10,6 +10,7 @@ import { ArtifactChatPanel } from '@/components/workspace/ArtifactChatPanel';
 import {
   updateWorkspaceItem,
   deleteWorkspaceItem,
+  requestWorkspaceIndex,
   type WorkspaceItem,
   type WorkspaceWidth,
 } from '@/lib/workspace';
@@ -62,6 +63,7 @@ export function WorkspaceCard({ item, onChange, onDelete }: Props) {
     const next = { ...item, notes: nextNotes };
     onChange(next);
     await updateWorkspaceItem(item.id, { notes: nextNotes });
+    requestWorkspaceIndex(item.id);
   }
 
   async function handleDelete() {

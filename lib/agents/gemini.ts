@@ -6,6 +6,9 @@
 
 import { generateText, generateJson } from '@/lib/llm/generate';
 import type { LlmGenerateOptions } from '@/lib/llm/types';
+import { startChildSpan } from '@/lib/observability/langfuse';
+import { recordEmbeddingCall } from '@/lib/observability/usage-ledger';
+import type { EmbeddingPurpose } from '@/lib/observability/types';
 
 const DEFAULT_EMBEDDING_MODEL = 'gemini-embedding-001';
 // DB column is `vector(768)`. gemini-embedding-001 default is 3072 dims, so
@@ -44,7 +47,10 @@ export async function generateHuggingFaceJson<T = Record<string, unknown>>(
  * Embeddings always use Gemini Developer API — do not follow LLM_PROVIDER=vertex
  * (avoids silent dimension mismatches with pgvector vector(768)).
  */
-export async function embedTextWithHuggingFace(text: string): Promise<number[] | null> {
+export async function embedTextWithHuggingFace(
+  text: string,
+  purpose: EmbeddingPurpose = 'unknown',
+): Promise<number[] | null> {
   const apiKey = getApiKey();
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -54,39 +60,79 @@ export async function embedTextWithHuggingFace(text: string): Promise<number[] |
     process.env.HUGGING_FACE_EMBEDDING_MODEL?.trim() ||
     DEFAULT_EMBEDDING_MODEL;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        content: { parts: [{ text: trimmed.slice(0, 8000) }] },
-        taskType: 'RETRIEVAL_DOCUMENT',
-        outputDimensionality: EMBEDDING_DIMENSIONS,
-      }),
-    },
-  );
+  const span = startChildSpan('embedding', { purpose, model }, { asType: 'embedding' });
+  const t0 = Date.now();
 
-  const raw = await response.text();
-  if (!response.ok) {
-    throw new Error(`Gemini embedContent failed (${response.status}): ${safePreview(raw)}`);
-  }
-
-  let parsed: { embedding?: { values?: number[] } };
   try {
-    parsed = JSON.parse(raw) as typeof parsed;
-  } catch {
-    return null;
-  }
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: { parts: [{ text: trimmed.slice(0, 8000) }] },
+          taskType: 'RETRIEVAL_DOCUMENT',
+          outputDimensionality: EMBEDDING_DIMENSIONS,
+        }),
+      },
+    );
 
-  const values = parsed.embedding?.values;
-  if (!Array.isArray(values)) return null;
-
-  if (EMBEDDING_DIMENSIONS < 3072) {
-    const norm = Math.sqrt(values.reduce((s, v) => s + v * v, 0));
-    if (norm > 0) {
-      return values.map(v => v / norm);
+    const raw = await response.text();
+    if (!response.ok) {
+      recordEmbeddingCall({
+        purpose,
+        model,
+        charCount: trimmed.length,
+        latencyMs: Date.now() - t0,
+        ok: false,
+      });
+      throw new Error(`Gemini embedContent failed (${response.status}): ${safePreview(raw)}`);
     }
+
+    let parsed: { embedding?: { values?: number[] } };
+    try {
+      parsed = JSON.parse(raw) as typeof parsed;
+    } catch {
+      recordEmbeddingCall({
+        purpose,
+        model,
+        charCount: trimmed.length,
+        latencyMs: Date.now() - t0,
+        ok: false,
+      });
+      return null;
+    }
+
+    const values = parsed.embedding?.values;
+    if (!Array.isArray(values)) {
+      recordEmbeddingCall({
+        purpose,
+        model,
+        charCount: trimmed.length,
+        latencyMs: Date.now() - t0,
+        ok: false,
+      });
+      return null;
+    }
+
+    recordEmbeddingCall({
+      purpose,
+      model,
+      charCount: trimmed.length,
+      latencyMs: Date.now() - t0,
+      ok: true,
+    });
+    span?.end({ dimensions: values.length });
+
+    if (EMBEDDING_DIMENSIONS < 3072) {
+      const norm = Math.sqrt(values.reduce((s, v) => s + v * v, 0));
+      if (norm > 0) {
+        return values.map(v => v / norm);
+      }
+    }
+    return values;
+  } catch (err) {
+    span?.end({ error: err instanceof Error ? err.message : String(err) });
+    throw err;
   }
-  return values;
 }

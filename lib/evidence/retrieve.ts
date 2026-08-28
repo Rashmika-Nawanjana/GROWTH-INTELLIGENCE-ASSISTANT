@@ -69,7 +69,7 @@ export async function retrieveEvidence(
   if (!isEvidenceRagEnabled()) return empty;
   if (!input.userId || !input.query?.trim()) return empty;
 
-  const embedding = await embedText(input.query);
+  const embedding = await embedText(input.query, 'evidence-retrieve');
   if (!embedding) return empty;
 
   const maxAge =

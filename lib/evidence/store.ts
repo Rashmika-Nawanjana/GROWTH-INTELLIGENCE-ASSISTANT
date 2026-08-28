@@ -121,7 +121,7 @@ async function upsertDocumentWithChunks(
 
   const rows: Array<Record<string, unknown>> = [];
   for (const chunk of draft.chunks) {
-    const embedding = await embedText(chunk.content);
+    const embedding = await embedText(chunk.content, 'evidence-index');
     if (!embedding) continue;
     rows.push({
       document_id: documentId,

@@ -47,6 +47,8 @@ import type {
 } from './types';
 import { scoreToLevel } from './types';
 import { filterAndRankSources } from '@/lib/tools/source-validator';
+import { enrichRunMetrics } from '@/lib/observability/build-metrics';
+import { runAgentObservation } from '@/lib/observability/langfuse';
 
 // ── Cost estimation constants ───────────────────────────────────────────────
 // Lightweight model-call estimate used for the UI metrics readout.
@@ -183,6 +185,7 @@ Set runExecution: false for pure research questions ("compare X vs Y", "what is 
     const raw = await generateHuggingFaceText(prompt + imageNote, {
       maxNewTokens: 512,
       temperature: 0.1,
+      stage: 'classify',
     });
     const parsed = safeParseJson(raw);
     return {
@@ -347,6 +350,7 @@ Return ONLY valid JSON (no markdown, no fences):
     const raw = await generateHuggingFaceText(prompt + imageNote, {
       maxNewTokens: 768,
       temperature: 0.2,
+      stage: 'synthesis',
     });
     const parsed = safeParseJson(raw);
     const answerRaw = (parsed.answer as string) || buildFallbackAnswer(outputs, query);
@@ -451,6 +455,7 @@ Return ONLY valid JSON (no markdown, no fences):
     const raw = await generateHuggingFaceText(prompt, {
       maxNewTokens: 2048,
       temperature: 0.15,
+      stage: 'mind-map',
     });
     const parsed = safeParseJson(raw);
 
@@ -680,7 +685,7 @@ export async function orchestrate(
       }
 
       const domainCtx = applyPlanToContext(agentContext, plan, agent.id as IntelligenceDomain);
-      const output = await agent.run(domainCtx);
+      const output = await runAgentObservation(agent.id, agent.name, () => agent.run(domainCtx));
       agentLatencies[agent.id] = Date.now() - agentStart;
       specialistRuns[i] = {
         ...specialistRuns[i],
@@ -790,7 +795,7 @@ export async function orchestrate(
     0,
   );
 
-  const metrics: RunMetrics = {
+  const metrics: RunMetrics = enrichRunMetrics({
     totalLatencyMs: Date.now() - orchestrationStart,
     agentLatencies,
     estimatedCostUsd: Number.parseFloat((modelCallCount * EST_COST_PER_MODEL_CALL).toFixed(5)),
@@ -803,7 +808,7 @@ export async function orchestrate(
     scrapeCallCount,
     droppedIrrelevantCount,
     localEntityCount: plan.localEntities.length,
-  };
+  });
 
   return {
     query,

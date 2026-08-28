@@ -14,6 +14,10 @@
 // agents a uniform way to apply a signal-quality penalty to their Gemini-
 // reported score.
 
+import {
+  normalizeToolProvider,
+  recordToolCall,
+} from '@/lib/observability/usage-ledger';
 import type { ToolResult, ToolStatus } from './types';
 
 // Canonical confidence anchors per status. Agents never fabricate these —
@@ -36,11 +40,22 @@ export function buildToolResult<T>(params: {
   sourceUrl?: string;
   cached?: boolean;
   confidenceOverride?: number;
+  latencyMs?: number;
+  operation?: string;
 }): ToolResult<T> {
-  const { data, status, source, sourceUrl, cached = false, confidenceOverride } = params;
+  const { data, status, source, sourceUrl, cached = false, confidenceOverride, latencyMs, operation } = params;
   const confidence = typeof confidenceOverride === 'number'
     ? Math.max(0, Math.min(1, confidenceOverride))
     : STATUS_CONFIDENCE[status];
+
+  recordToolCall({
+    provider: normalizeToolProvider(source),
+    operation,
+    status,
+    latencyMs,
+    cached,
+  });
+
   return {
     data,
     source,
