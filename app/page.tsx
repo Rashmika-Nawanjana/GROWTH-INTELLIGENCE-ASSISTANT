@@ -8,10 +8,12 @@ import {
   TrendingUp, Swords, Trophy, DollarSign, Megaphone, Telescope,
   CheckCircle2, Check, Circle, AlertCircle, MessageSquarePlus, Paperclip, Trash2,
   Activity, Zap, Shield, Sun, Moon, Rocket, Fish, CheckCheck, Sparkles,
-  ThumbsUp, ThumbsDown, BarChart3, Crosshair,
+  ThumbsUp, ThumbsDown, BarChart3, Crosshair, Bookmark,
 } from 'lucide-react';
 import { ApiUsagePanel } from '@/components/ApiUsagePanel';
 import { StealStrategyPanel } from '@/components/StealStrategyPanel';
+import { WorkspacePanel } from '@/components/workspace/WorkspacePanel';
+import { AddToWorkspaceButton } from '@/components/workspace/AddToWorkspaceButton';
 import { createClient } from '@/lib/supabase-browser';
 import type { AgentRun, OrchestratorOutput, AgentOutput, ImageAttachment, MindMapOutput, ExecutionPlanOutput, ForecastOutput, RefinementDelta } from '@/lib/agents/types';
 import { ArtifactRenderer } from '@/components/artifacts/ArtifactRenderer';
@@ -429,8 +431,10 @@ export default function VeracityDashboard() {
     Object.fromEntries(ALL_DOMAINS.map(d => [d, d !== 'mirofish-live'])) as Record<Domain, boolean>
   );
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  /** Top header tabs: main intelligence vs usage vs steal strategy. */
-  const [topTab, setTopTab] = useState<'intelligence' | 'usage' | 'steal'>('intelligence');
+  /** Top header tabs: main intelligence vs usage vs steal strategy vs workspace. */
+  const [topTab, setTopTab] = useState<'intelligence' | 'usage' | 'steal' | 'workspace'>('intelligence');
+  /** Keys of artifacts already pinned to workspace this session (optimistic UI). */
+  const [workspaceSavedKeys, setWorkspaceSavedKeys] = useState<Set<string>>(() => new Set());
   /** Rolling totals for API Usage tab (reset on new query). */
   const [sessionUsage, setSessionUsage] = useState({
     queries: 0,
@@ -1406,6 +1410,7 @@ export default function VeracityDashboard() {
               { id: 'intelligence' as const, label: 'Intelligence', icon: <Sparkles size={12} /> },
               { id: 'usage' as const, label: 'API usage', icon: <BarChart3 size={12} /> },
               { id: 'steal' as const, label: 'Steal strategy', icon: <Crosshair size={12} /> },
+              { id: 'workspace' as const, label: 'Workspace', icon: <Bookmark size={12} /> },
             ].map(tab => (
               <button
                 key={tab.id}
@@ -1504,6 +1509,8 @@ export default function VeracityDashboard() {
             )}
 
             {topTab === 'steal' && <StealStrategyPanel />}
+
+            {topTab === 'workspace' && <WorkspacePanel />}
 
             {topTab === 'intelligence' && (
             <>
@@ -1723,13 +1730,27 @@ export default function VeracityDashboard() {
                       live
                     </span>
                   </div>
-                  <button onClick={() => setExpandedDomain(null)}
-                    className="p-1.5 rounded-lg transition-colors"
-                    style={{ color: textMuted }}
-                    onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = isDark ? '#1a1a1a' : '#f0f0f0'; }}
-                    onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
-                    <X size={15} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {expandedOutput && (
+                      <AddToWorkspaceButton
+                        output={expandedOutput}
+                        product={currentResult?.orchestratorOutput?.product ?? ''}
+                        competitor={currentResult?.orchestratorOutput?.competitor ?? null}
+                        title={`${DOMAIN_META[expandedDomain].short}${currentResult?.orchestratorOutput?.product ? ` · ${currentResult.orchestratorOutput.product}` : ''}`}
+                        sessionId={currentSessionId}
+                        messageId={currentResult?.persistedId ?? null}
+                        savedKeys={workspaceSavedKeys}
+                        onSaved={key => setWorkspaceSavedKeys(prev => new Set(prev).add(key))}
+                      />
+                    )}
+                    <button onClick={() => setExpandedDomain(null)}
+                      className="p-1.5 rounded-lg transition-colors"
+                      style={{ color: textMuted }}
+                      onMouseEnter={e => { const b = e.currentTarget as HTMLButtonElement; b.style.background = isDark ? '#1a1a1a' : '#f0f0f0'; }}
+                      onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.background = 'transparent'; }}>
+                      <X size={15} />
+                    </button>
+                  </div>
                 </div>
 
                 <div className="p-6 lg:p-8 flex flex-col gap-7">
@@ -2097,11 +2118,23 @@ export default function VeracityDashboard() {
               if (!mindMapOutput?.branches?.length) return null;
               return (
                 <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
-                  <div className="flex items-center gap-2 px-5 py-3.5" style={{ borderBottom: `1px solid ${borderC}` }}>
-                    <GitBranch size={14} style={{ color: '#0070f3' }} />
-                    <span className="text-[12px] font-mono font-semibold uppercase tracking-widest" style={{ color: textMuted }}>
-                      Mind Map
-                    </span>
+                  <div className="flex items-center justify-between gap-2 px-5 py-3.5" style={{ borderBottom: `1px solid ${borderC}` }}>
+                    <div className="flex items-center gap-2">
+                      <GitBranch size={14} style={{ color: '#0070f3' }} />
+                      <span className="text-[12px] font-mono font-semibold uppercase tracking-widest" style={{ color: textMuted }}>
+                        Mind Map
+                      </span>
+                    </div>
+                    <AddToWorkspaceButton
+                      output={mindMapOutput}
+                      product={currentResult?.orchestratorOutput?.product ?? ''}
+                      competitor={currentResult?.orchestratorOutput?.competitor ?? null}
+                      title={`Mind Map${currentResult?.orchestratorOutput?.product ? ` · ${currentResult.orchestratorOutput.product}` : ''}`}
+                      sessionId={currentSessionId}
+                      messageId={currentResult?.persistedId ?? null}
+                      savedKeys={workspaceSavedKeys}
+                      onSaved={key => setWorkspaceSavedKeys(prev => new Set(prev).add(key))}
+                    />
                   </div>
                   <div className="p-4">
                     <ArtifactRenderer output={mindMapOutput} product={currentResult?.orchestratorOutput?.product ?? ''} />

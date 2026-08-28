@@ -21,12 +21,26 @@ const DIRECTION_COLOR = {
   down: '#ef4444',
 };
 
-function CustomTooltip({ active, payload, label }: any) {
+/** Distinct bar colors so categories stay visually separable even when direction matches. */
+const BAR_COLORS = [
+  '#0052FF',
+  '#4D7CFF',
+  '#10b981',
+  '#f59e0b',
+  '#8b5cf6',
+  '#06b6d4',
+  '#ec4899',
+  '#ef4444',
+];
+
+function CustomTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: TrendDataPoint }> }) {
   if (active && payload && payload.length) {
-    const d: TrendDataPoint = payload[0].payload;
+    const d = payload[0].payload;
+    const dirLabel = d.direction === 'up' ? 'Growing' : d.direction === 'down' ? 'Declining' : 'Stable';
     return (
       <div className="bg-card border border-border rounded-xl shadow-lg p-3 text-xs max-w-[220px]">
         <p className="font-mono font-medium text-foreground mb-1">{d.keyword}</p>
+        <p className="text-[10px] font-mono mb-1" style={{ color: DIRECTION_COLOR[d.direction] }}>{dirLabel}</p>
         <p className="text-muted-foreground leading-relaxed">{d.signal}</p>
         <p className="text-[10px] text-muted-foreground mt-1 font-mono">Source: {d.source}</p>
       </div>
@@ -41,15 +55,15 @@ export function TrendChart({ output }: TrendChartProps) {
   const categoryOutlook = output.categoryOutlook;
   const timeHorizon = output.timeHorizon;
 
-  const chartData = trends.map(t => ({
+  const chartData = trends.map((t, i) => ({
     ...t,
     displayValue: t.direction === 'down' ? -Math.abs(t.changePercent) : Math.abs(t.changePercent || 5),
     absValue: Math.abs(t.changePercent || 5),
+    barColor: BAR_COLORS[i % BAR_COLORS.length],
   }));
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Header row */}
       <div className="flex items-center justify-between">
         <div className="text-xs font-mono text-muted-foreground uppercase tracking-wider">Market Trend Analysis</div>
         <div className="flex items-center gap-2">
@@ -60,7 +74,6 @@ export function TrendChart({ output }: TrendChartProps) {
         </div>
       </div>
 
-      {/* Bar chart */}
       {chartData.length > 0 && (
         <div className="w-full" style={{ height: Math.max(160, chartData.length * 44) }}>
           <ResponsiveContainer width="100%" height="100%">
@@ -85,7 +98,13 @@ export function TrendChart({ output }: TrendChartProps) {
               <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,82,255,0.04)' }} />
               <Bar dataKey="absValue" radius={[0, 6, 6, 0]} maxBarSize={22}>
                 {chartData.map((d, i) => (
-                  <Cell key={i} fill={DIRECTION_COLOR[d.direction]} fillOpacity={0.85} />
+                  <Cell
+                    key={i}
+                    fill={d.barColor}
+                    fillOpacity={0.9}
+                    stroke={DIRECTION_COLOR[d.direction]}
+                    strokeWidth={2}
+                  />
                 ))}
               </Bar>
             </BarChart>
@@ -93,17 +112,28 @@ export function TrendChart({ output }: TrendChartProps) {
         </div>
       )}
 
-      {/* Legend */}
-      <div className="flex items-center gap-4 text-[10px] font-mono text-muted-foreground">
-        {(['up', 'flat', 'down'] as const).map(dir => (
-          <span key={dir} className="flex items-center gap-1">
-            <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: DIRECTION_COLOR[dir] }} />
-            {dir === 'up' ? 'Growing' : dir === 'flat' ? 'Stable' : 'Declining'}
-          </span>
-        ))}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center gap-3 text-[10px] font-mono text-muted-foreground">
+          {chartData.map((d, i) => (
+            <span key={i} className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: d.barColor }} />
+              {d.keyword}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-4 text-[10px] font-mono text-muted-foreground">
+          {(['up', 'flat', 'down'] as const).map(dir => (
+            <span key={dir} className="flex items-center gap-1">
+              <span
+                className="w-2.5 h-2.5 rounded-sm inline-block border-2 bg-transparent"
+                style={{ borderColor: DIRECTION_COLOR[dir] }}
+              />
+              {dir === 'up' ? 'Growing' : dir === 'flat' ? 'Stable' : 'Declining'}
+            </span>
+          ))}
+        </div>
       </div>
 
-      {/* Key signals */}
       {keySignals.length > 0 && (
         <div className="flex flex-col gap-1.5">
           <p className="text-[10px] font-mono uppercase text-muted-foreground tracking-wider">Key Signals</p>
