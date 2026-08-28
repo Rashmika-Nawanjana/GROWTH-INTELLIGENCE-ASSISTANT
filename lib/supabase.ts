@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { getAdminClient } from './supabase-admin';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
+/** @deprecated Prefer getAdminClient for signal_cache; kept for legacy conversation helpers. */
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // Cache TTL in minutes per tool type
@@ -23,12 +25,23 @@ export interface CacheEntry {
   created_at?: string;
 }
 
+function cacheClient() {
+  try {
+    return getAdminClient();
+  } catch {
+    // Fall back to anon only when service role is missing (local without key).
+    // After migration 011 this will fail closed (no RLS policies for anon).
+    return supabase;
+  }
+}
+
 export async function getCached(tool: string, cacheKey: string): Promise<unknown | null> {
   try {
     const ttlMinutes = CACHE_TTL[tool] ?? 30;
     const cutoff = new Date(Date.now() - ttlMinutes * 60 * 1000).toISOString();
+    const client = cacheClient();
 
-    const { data, error } = await supabase
+    const { data, error } = await client
       .from('signal_cache')
       .select('result')
       .eq('cache_key', cacheKey)
@@ -47,7 +60,8 @@ export async function getCached(tool: string, cacheKey: string): Promise<unknown
 
 export async function setCache(tool: string, cacheKey: string, result: unknown): Promise<void> {
   try {
-    await supabase.from('signal_cache').upsert({
+    const client = cacheClient();
+    await client.from('signal_cache').upsert({
       cache_key: cacheKey,
       tool,
       result,
@@ -63,13 +77,14 @@ export async function saveConversation(
   messages: { role: string; content: string }[]
 ): Promise<void> {
   try {
-    await supabase.from('conversations').upsert({
+    const client = cacheClient();
+    await client.from('conversations').upsert({
       session_id: sessionId,
       messages,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'session_id' });
   } catch {
-    // Non-fatal
+    // Non-fatal — legacy table; prefer chat_sessions
   }
 }
 
@@ -77,7 +92,8 @@ export async function getConversation(
   sessionId: string
 ): Promise<{ role: string; content: string }[] | null> {
   try {
-    const { data } = await supabase
+    const client = cacheClient();
+    const { data } = await client
       .from('conversations')
       .select('messages')
       .eq('session_id', sessionId)

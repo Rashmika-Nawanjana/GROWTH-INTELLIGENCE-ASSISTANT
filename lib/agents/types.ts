@@ -270,6 +270,9 @@ export interface RunMetrics {
   outputTokens?: number;
   traceId?: string;
   traceUrl?: string;
+  /** Output guardrail safety score 0..1 (1 = safest). */
+  safetyScore?: number;
+  guardrailRisk?: 'low' | 'medium' | 'high';
 }
 
 export interface OrchestratorOutput {
@@ -399,6 +402,15 @@ export interface AgentContext {
   planNotes?: string[];
   /** Prior indexed evidence hits (RAG) — context only, not live verification. */
   retrievedEvidence?: RetrievedEvidenceHit[];
+  /** Guardrail constraints applied when input risk is medium. */
+  guardrailConstraints?: {
+    disableExecution: boolean;
+    restrictScraping: boolean;
+    maxAgents: number;
+    conservativePrompt: boolean;
+  };
+  /** Guardrail risk level for this run (telemetry). */
+  guardrailRisk?: 'low' | 'medium' | 'high';
 }
 
 export interface RetrievedEvidenceHit {

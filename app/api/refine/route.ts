@@ -53,21 +53,50 @@ async function getSupabase() {
 }
 
 export async function POST(req: NextRequest) {
-  let body: RefineBody;
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: 'Invalid request body' }, { status: 400 });
   }
 
-  if (!body.sessionId || !body.messageId) {
-    return NextResponse.json({ ok: false, error: 'sessionId and messageId are required' }, { status: 400 });
+  const { refineBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+  const parsed = refineBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: formatZodError(parsed.error) }, { status: 400 });
   }
+  const body = parsed.data;
 
   const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ ok: false, error: 'Not signed in' }, { status: 401 });
+  }
+
+  const { enforceUserQuotas, guardInput, logGuardrailEvent } = await import('@/lib/guardrails');
+  const quota = await enforceUserQuotas(supabase, user.id, 'refine');
+  if (!quota.allowed) {
+    return NextResponse.json({
+      ok: false,
+      error: quota.reason === 'spend'
+        ? 'Daily usage limit reached. Try again tomorrow.'
+        : `Rate limit exceeded. Retry in ${quota.retryAfterSeconds ?? 60}s.`,
+    }, { status: 429 });
+  }
+
+  if (body.focus) {
+    const focusVerdict = await guardInput(body.focus);
+    if (focusVerdict.blocked) {
+      await logGuardrailEvent(supabase, {
+        userId: user.id,
+        route: 'refine',
+        risk: focusVerdict.risk,
+        blocked: true,
+        findings: focusVerdict.findings,
+      });
+      return NextResponse.json({ ok: false, error: 'Request blocked by safety policy.' }, { status: 400 });
+    }
+    body.focus = focusVerdict.redactedText;
   }
 
   // 1. Pull the prior assistant message so we have the research outputs
@@ -168,9 +197,10 @@ export async function POST(req: NextRequest) {
     );
     refinedOutput = result;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'refine orchestration error';
+    const { toPublicError } = await import('@/lib/api/errors');
+    const { message } = toPublicError(err, 'Re-orchestration failed');
     return NextResponse.json(
-      { ok: false, error: `Re-orchestration failed: ${msg}` },
+      { ok: false, error: message },
       { status: 500 },
     );
   }

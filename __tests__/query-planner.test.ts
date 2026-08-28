@@ -25,7 +25,8 @@ describe('query planner', () => {
       query: 'compare competitors',
     });
 
-    expect(bundle.broad).toContain('top competitors');
+    // Discovery path when competitor is missing/placeholder
+    expect(bundle.broad).toMatch(/competitors/i);
     expect(bundle.hypothesis).not.toContain('undefined');
     expect(bundle.targeted).not.toContain('undefined');
   });

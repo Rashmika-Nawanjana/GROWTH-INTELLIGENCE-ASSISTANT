@@ -79,19 +79,45 @@ export async function POST(req: NextRequest) {
     return jsonError('Not authenticated', 401);
   }
 
-  let body: { itemId?: string; question?: string; chartType?: string };
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return jsonError('Invalid JSON', 400);
   }
 
-  const itemId = (body.itemId ?? '').trim();
-  const question = (body.question ?? '').trim();
-  const chartType = (body.chartType ?? 'native').trim();
+  const { workspaceExplainBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+  const parsed = workspaceExplainBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return jsonError(formatZodError(parsed.error), 400);
+  }
 
-  if (!itemId) return jsonError('itemId is required', 400);
-  if (question.length < 2) return jsonError('question is required', 400);
+  const { enforceUserQuotas, guardInput, logGuardrailEvent, guardOutput } = await import('@/lib/guardrails');
+  const quota = await enforceUserQuotas(supabase, user.id, 'workspace-explain');
+  if (!quota.allowed) {
+    return jsonError(
+      quota.reason === 'spend'
+        ? 'Daily usage limit reached. Try again tomorrow.'
+        : `Rate limit exceeded. Retry in ${quota.retryAfterSeconds ?? 60}s.`,
+      429,
+    );
+  }
+
+  const questionVerdict = await guardInput(parsed.data.question);
+  if (questionVerdict.blocked) {
+    await logGuardrailEvent(supabase, {
+      userId: user.id,
+      route: 'workspace-explain',
+      risk: questionVerdict.risk,
+      blocked: true,
+      findings: questionVerdict.findings,
+    });
+    return jsonError('Request blocked by safety policy.', 400);
+  }
+
+  const itemId = parsed.data.itemId;
+  const question = questionVerdict.redactedText;
+  const chartType = parsed.data.chartType;
 
   const { data: item, error: itemError } = await supabase
     .from('workspace_items')
@@ -243,7 +269,7 @@ Write a clear, grounded answer:`;
       },
     );
 
-    const trimmed = (answer ?? '').trim();
+    const trimmed = guardOutput((answer ?? '').trim()).safeText;
     if (!trimmed) {
       return jsonError('Model returned an empty answer', 502);
     }
@@ -270,7 +296,7 @@ Write a clear, grounded answer:`;
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Explanation failed';
-    return jsonError(msg, 500);
+    const { publicJsonError } = await import('@/lib/api/errors');
+    return publicJsonError(e, 'Explanation failed');
   }
 }

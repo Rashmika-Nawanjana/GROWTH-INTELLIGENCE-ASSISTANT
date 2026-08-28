@@ -290,7 +290,7 @@ ${candidates.length ? `Candidate organisations found: ${candidates.map(c => `${c
 ${ctx.discoveredEntities?.length ? `Planner entities: ${ctx.discoveredEntities.map(e => e.name).join(', ')}` : ''}
 
 Raw signals:
-${loop.rawContent.join('\n') || '(no relevant signals after filtering)'}
+${(await import('@/lib/guardrails')).fenceUntrusted(loop.rawContent)}
 
 Produce a JSON object:
 {

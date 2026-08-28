@@ -219,7 +219,7 @@ ${geography ? `Geography: ${geography.name}` : ''}
 Evidence status: ${loop.evidence.status}
 
 Raw signals:
-${loop.rawContent.join('\n') || '(no relevant pricing signals)'}
+${(await import('@/lib/guardrails')).fenceUntrusted(loop.rawContent)}
 
 Produce JSON:
 {

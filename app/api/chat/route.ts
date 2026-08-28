@@ -64,39 +64,72 @@ export async function POST(req: NextRequest) {
     return jsonError('Not authenticated', 401);
   }
 
-  let body: {
-    query: string;
-    history: ConversationMessage[];
-    images?: ImageAttachment[];
-    memoryContext?: string;
-    sessionId?: string;
-    includeMirofish?: boolean;
-    includeMirofishLive?: boolean;
-    followUpMode?: 'full' | 'targeted';
-    selectedAgents?: string[];
-  };
-
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const {
-    query,
-    history = [],
-    images = [],
-    memoryContext,
-    sessionId,
-    includeMirofish = false,
-    includeMirofishLive = false,
-    followUpMode = 'full',
-    selectedAgents = [],
-  } = body;
-
-  if (!query?.trim()) {
-    return jsonError('query is required', 400);
+  const { chatBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+  const parsed = chatBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return jsonError(formatZodError(parsed.error), 400);
   }
+
+  const history: ConversationMessage[] = parsed.data.history
+    .filter((m): m is { role: 'user' | 'assistant'; content: string; timestamp?: string } =>
+      m.role === 'user' || m.role === 'assistant',
+    )
+    .map(m => ({
+      role: m.role,
+      content: m.content,
+      timestamp: m.timestamp ?? new Date().toISOString(),
+    }));
+
+  const {
+    query: rawQuery,
+    images,
+    sessionId,
+    includeMirofish,
+    includeMirofishLive,
+    followUpMode,
+    selectedAgents,
+  } = parsed.data;
+
+  // Rate limit + daily spend cap before any LLM spend
+  const { enforceUserQuotas, guardInput, logGuardrailEvent } = await import('@/lib/guardrails');
+  const quota = await enforceUserQuotas(supabase, user.id, 'chat');
+  if (!quota.allowed) {
+    const msg =
+      quota.reason === 'spend'
+        ? 'Daily usage limit reached. Try again tomorrow.'
+        : `Rate limit exceeded. Retry in ${quota.retryAfterSeconds ?? 60}s.`;
+    return jsonError(msg, 429);
+  }
+
+  // Input gate — redact PII, detect injection/malicious content
+  const verdict = await guardInput(rawQuery);
+  if (verdict.findings.length > 0 || verdict.blocked) {
+    await logGuardrailEvent(supabase, {
+      userId: user.id,
+      route: 'chat',
+      risk: verdict.risk,
+      blocked: verdict.blocked,
+      findings: verdict.findings,
+      judged: verdict.judged,
+      reason: verdict.reason,
+    });
+  }
+  if (verdict.blocked) {
+    return jsonError('Request blocked by safety policy.', 400);
+  }
+
+  const query = verdict.redactedText;
+
+  // Trust boundary: load memory from DB — ignore client memoryContext
+  const { getUserMemoryWithContext } = await import('@/lib/memory-store/user-memory');
+  const { contextBlock: memoryContext } = await getUserMemoryWithContext(supabase, user.id);
 
   const encoder = new TextEncoder();
   // eslint-disable-next-line prefer-const
@@ -163,7 +196,7 @@ export async function POST(req: NextRequest) {
           name: 'chat-orchestration',
           input: { query: query.slice(0, 200) },
           userId: user.id,
-          sessionId,
+          sessionId: sessionId ?? undefined,
           tags: ['chat', getOrchestratorBackend()],
           metadata: { orchestratorBackend: getOrchestratorBackend() },
           asType: 'agent',
@@ -171,7 +204,7 @@ export async function POST(req: NextRequest) {
         async () => {
           await runWithUsageLedger(
             {
-              sessionId,
+              sessionId: sessionId ?? undefined,
               userId: user.id,
               queryPreview: query.slice(0, 120),
             },
@@ -198,13 +231,15 @@ export async function POST(req: NextRequest) {
                   write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
                 },
                 images,
-                memoryContext,
+                memoryContext || undefined,
                 {
                   followUpMode,
                   selectedAgents,
                   injectedContext,
                   userId: user.id,
                   onOrchestrationLog: (line: string) => write({ type: 'orchestration_log', line }),
+                  guardrailConstraints: verdict.constraints,
+                  guardrailRisk: verdict.risk,
                 },
                 supabase,
               );
@@ -240,7 +275,7 @@ export async function POST(req: NextRequest) {
                       write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
                     },
                     images,
-                    memoryContext,
+                    memoryContext || undefined,
                     (line: string) => write({ type: 'orchestration_log', line }),
                   );
                   if (mirofishOutput) {
@@ -261,7 +296,7 @@ export async function POST(req: NextRequest) {
                       write({ type: 'agent_update', run: agentRun, metrics: computeLiveMetrics() });
                     },
                     images,
-                    memoryContext,
+                    memoryContext || undefined,
                     (line: string) => write({ type: 'orchestration_log', line }),
                   );
                   if (mirofishLiveOutput) {
@@ -282,7 +317,11 @@ export async function POST(req: NextRequest) {
                       userId: user.id,
                       sessionId,
                       queryPreview: query.slice(0, 200),
-                      metrics: latestMetrics,
+                      metrics: {
+                        ...latestMetrics,
+                        safetyScore: latestMetrics.safetyScore ?? result.metrics?.safetyScore,
+                        guardrailRisk: verdict.risk,
+                      },
                     });
                   } catch (err) {
                     console.error('[persistRunUsage]', err instanceof Error ? err.message : err);
@@ -294,7 +333,8 @@ export async function POST(req: NextRequest) {
         },
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Internal error';
+      const { toPublicError } = await import('@/lib/api/errors');
+      const { message } = toPublicError(err, 'Analysis failed. Please try again.');
       write({ type: 'error', message });
       after(async () => { await flushLangfuse(); });
     } finally {

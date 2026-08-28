@@ -163,64 +163,61 @@ export function WorkspaceChart({ series, chartType, height = 240 }: Props) {
   }
 
   if (chartType === 'line' || chartType === 'area') {
-    const Chart = chartType === 'area' ? AreaChart : LineChart;
+    const sharedAxes = (
+      <>
+        <XAxis dataKey="name" tick={tick} axisLine={false} tickLine={false} />
+        <YAxis tick={tick} axisLine={false} tickLine={false} width={36} />
+        <Tooltip content={<CustomTooltip />} />
+      </>
+    );
+
+    const seriesNodes = single ? (
+      chartType === 'area' ? (
+        <Area type="monotone" dataKey="value" stroke={SERIES_COLORS[0]} fill={SERIES_COLORS[0]} fillOpacity={0.2} />
+      ) : (
+        <Line type="monotone" dataKey="value" stroke={SERIES_COLORS[0]} strokeWidth={2} dot={{ r: 4 }} />
+      )
+    ) : (
+      <>
+        {series.map((s, i) =>
+          chartType === 'area' ? (
+            <Area
+              key={s.label}
+              type="monotone"
+              dataKey={s.label}
+              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+              fill={SERIES_COLORS[i % SERIES_COLORS.length]}
+              fillOpacity={0.15}
+            />
+          ) : (
+            <Line
+              key={s.label}
+              type="monotone"
+              dataKey={s.label}
+              stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
+              strokeWidth={2}
+              dot={{ r: 3 }}
+            />
+          ),
+        )}
+        <Legend wrapperStyle={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }} />
+      </>
+    );
+
     return (
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
-          <Chart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-            <XAxis dataKey="name" tick={tick} axisLine={false} tickLine={false} />
-            <YAxis tick={tick} axisLine={false} tickLine={false} width={36} />
-            <Tooltip content={<CustomTooltip />} />
-            {single ? (
-              chartType === 'area' ? (
-                <Area type="monotone" dataKey="value" stroke={SERIES_COLORS[0]} fill={SERIES_COLORS[0]} fillOpacity={0.2} />
-              ) : (
-                <Line
-                  type="monotone"
-                  dataKey="value"
-                  stroke={SERIES_COLORS[0]}
-                  strokeWidth={2}
-                  dot={(props: { cx?: number; cy?: number; index?: number }) => {
-                    const i = props.index ?? 0;
-                    return (
-                      <circle
-                        key={`dot-${i}`}
-                        cx={props.cx}
-                        cy={props.cy}
-                        r={4}
-                        fill={SERIES_COLORS[i % SERIES_COLORS.length]}
-                        stroke="#fff"
-                        strokeWidth={1}
-                      />
-                    );
-                  }}
-                />
-              )
-            ) : (
-              series.map((s, i) =>
-                chartType === 'area' ? (
-                  <Area
-                    key={s.label}
-                    type="monotone"
-                    dataKey={s.label}
-                    stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-                    fill={SERIES_COLORS[i % SERIES_COLORS.length]}
-                    fillOpacity={0.15}
-                  />
-                ) : (
-                  <Line
-                    key={s.label}
-                    type="monotone"
-                    dataKey={s.label}
-                    stroke={SERIES_COLORS[i % SERIES_COLORS.length]}
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
-                  />
-                ),
-              )
-            )}
-            {!single && <Legend wrapperStyle={{ fontSize: 11, fontFamily: 'JetBrains Mono, monospace' }} />}
-          </Chart>
+          {chartType === 'area' ? (
+            <AreaChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+              {sharedAxes}
+              {seriesNodes}
+            </AreaChart>
+          ) : (
+            <LineChart data={rows} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
+              {sharedAxes}
+              {seriesNodes}
+            </LineChart>
+          )}
         </ResponsiveContainer>
       </div>
     );

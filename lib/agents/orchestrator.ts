@@ -109,6 +109,14 @@ export interface OrchestrateOptions {
   userId?: string; // authenticated user — required for evidence RAG retrieval/indexing
   /** Live status lines for the UI (e.g. “Reasoning…”, “Orchestrating…”). */
   onOrchestrationLog?: (message: string) => void;
+  /** Guardrail constraints from input gate (medium risk). */
+  guardrailConstraints?: {
+    disableExecution: boolean;
+    restrictScraping: boolean;
+    maxAgents: number;
+    conservativePrompt: boolean;
+  };
+  guardrailRisk?: 'low' | 'medium' | 'high';
 }
 
 export async function classifyQuery(
@@ -505,7 +513,11 @@ export async function orchestrate(
   const { product, competitor, productUrl, competitorUrl, intent, runExecution } = classification;
   const allowedAgents = new Set(options?.selectedAgents?.length ? options.selectedAgents : ALL_AGENTS.map(a => a.id));
   const executionEnabled = allowedAgents.has('execution-engine');
-  const shouldRunExecution = executionEnabled && (runExecution || options?.forceExecution === true);
+  const gc = options?.guardrailConstraints;
+  const shouldRunExecution =
+    executionEnabled &&
+    !gc?.disableExecution &&
+    (runExecution || options?.forceExecution === true);
 
   // Build prior context string for agents
   const priorContext = history
@@ -517,7 +529,12 @@ export async function orchestrate(
     .filter(Boolean)
     .join('\n\n');
 
-  const synthesisMemoryContext = [memoryContext, options?.injectedContext]
+  const { CONSERVATIVE_PREAMBLE } = await import('@/lib/guardrails');
+  const synthesisMemoryContext = [
+    gc?.conservativePrompt ? CONSERVATIVE_PREAMBLE : null,
+    memoryContext,
+    options?.injectedContext,
+  ]
     .filter(Boolean)
     .join('\n\n') || undefined;
 
@@ -538,11 +555,13 @@ export async function orchestrate(
     competitorUrl,
     priorContext: combinedPriorContext || undefined,
     images: images.length > 0 ? images : undefined,
-    memoryContext: memoryContext || undefined,
+    memoryContext: synthesisMemoryContext,
     geography: classification.geography,
     category: classification.category,
     namedEntities: classification.namedEntities,
     requiredTerms: classification.requiredTerms,
+    guardrailConstraints: gc,
+    guardrailRisk: options?.guardrailRisk,
   };
 
   // Step 1b: Shared discovery + research planner (1 model call, budgeted)
@@ -607,9 +626,11 @@ export async function orchestrate(
   const classifiedDomains = new Set(classification.domains ?? []);
   const availableResearchAgents = ALL_AGENTS.filter(agent => allowedAgents.has(agent.id));
   const targetedAgents = availableResearchAgents.filter(agent => classifiedDomains.has(agent.id as IntelligenceDomain));
-  const agentsToRun = options?.followUpMode === 'targeted'
+  const agentsToRunRaw = options?.followUpMode === 'targeted'
     ? (targetedAgents.length > 0 ? targetedAgents : availableResearchAgents)
     : availableResearchAgents;
+  const maxAgents = gc?.maxAgents && gc.maxAgents > 0 ? gc.maxAgents : agentsToRunRaw.length;
+  const agentsToRun = agentsToRunRaw.slice(0, maxAgents);
 
   const sweepLabel = options?.followUpMode === 'targeted' ? 'targeted follow-up' : 'full research sweep';
   log?.(`Dividing work across ${agentsToRun.length} specialist agents (${sweepLabel})…`);
@@ -763,7 +784,12 @@ export async function orchestrate(
     generateMindMap(query, product, outputs),
   ]);
   modelCallCount += 2; // synthesis + mind map
-  const { answer, recommendations, followUps } = synthesisResult;
+  const { answer: rawAnswer, recommendations, followUps } = synthesisResult;
+
+  const { guardOutput } = await import('@/lib/guardrails');
+  const guarded = guardOutput(rawAnswer);
+  const answer = guarded.safeText;
+  const safetyScore = guarded.safetyScore;
 
   // Append mind map to outputs if generated successfully
   if (mindMapResult) {
@@ -808,6 +834,8 @@ export async function orchestrate(
     scrapeCallCount,
     droppedIrrelevantCount,
     localEntityCount: plan.localEntities.length,
+    safetyScore,
+    guardrailRisk: options?.guardrailRisk,
   });
 
   return {

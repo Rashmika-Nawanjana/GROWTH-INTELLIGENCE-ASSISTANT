@@ -365,7 +365,7 @@ Heuristic candidates (may include noise — verify against signals):
 ${discovery.candidates.map(c => `- ${c.name} (${c.type}) ${c.url ?? ''}`).join('\n') || '(none)'}
 
 Discovery signals:
-${discovery.excerpts.slice(0, 20).join('\n') || '(no relevant signals)'}
+${(await import('@/lib/guardrails')).fenceUntrusted(discovery.excerpts.slice(0, 20), 'discovery')}
 
 Return JSON:
 {

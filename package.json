@@ -23,7 +23,7 @@
     "@langfuse/otel": "^5.11.0",
     "@langfuse/tracing": "^5.11.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@opentelemetry/sdk-node": "^0.221.0",
+    "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.1",
     "agent-browser": "^0.24.0",

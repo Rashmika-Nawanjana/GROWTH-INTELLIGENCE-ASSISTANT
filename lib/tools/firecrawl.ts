@@ -66,6 +66,19 @@ async function firecrwlFetch(url: string, extractPrompt: string, apiKey: string,
 }
 
 export async function scrapePage(url: string): Promise<ToolResult<ScrapedPage>> {
+  try {
+    const { assertSafeUrl } = await import('@/lib/guardrails');
+    await assertSafeUrl(url);
+  } catch {
+    return buildToolResult({
+      data: { url, title: '', markdown: '', excerpt: '' },
+      status: 'failed',
+      source: 'url-policy',
+      sourceUrl: url,
+      operation: 'scrapePage',
+    });
+  }
+
   const cacheKey = `scrape:${url}`;
   const cached = await getCached('firecrawl', cacheKey);
   if (cached) {
@@ -189,6 +202,13 @@ function needsJsRender(url: string): boolean {
 }
 
 async function scrapeDoFetch(url: string): Promise<{ markdown: string; title: string } | null> {
+  try {
+    const { assertSafeUrl } = await import('@/lib/guardrails');
+    await assertSafeUrl(url);
+  } catch {
+    return null;
+  }
+
   const token = process.env.SCRAPE_DO_TOKEN;
   if (!token) return null;
 
@@ -278,6 +298,13 @@ function stripHtmlToText(html: string): string {
 }
 
 async function smartDirectFetch(url: string): Promise<{ markdown: string; title: string } | null> {
+  try {
+    const { assertSafeUrl } = await import('@/lib/guardrails');
+    await assertSafeUrl(url);
+  } catch {
+    return null;
+  }
+
   try {
     const res = await fetch(url, {
       headers: {

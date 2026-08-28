@@ -4,25 +4,21 @@ import { embedText } from '@/lib/embeddings';
 
 export const runtime = 'nodejs';
 
-interface EmbedBody {
-  sessionId: string;
-  messageId?: string;
-  role: 'user' | 'assistant';
-  content: string;
-}
-
 export async function POST(req: NextRequest) {
-  let body: EmbedBody;
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { sessionId, messageId, role, content } = body;
-  if (!sessionId || !role || !content?.trim()) {
-    return NextResponse.json({ error: 'sessionId, role, content are required' }, { status: 400 });
+  const { embedBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+  const parsed = embedBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
   }
+
+  const { sessionId, messageId, role, content } = parsed.data;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -58,7 +54,9 @@ export async function POST(req: NextRequest) {
 
   if (error) {
     console.error('[embed insert]', error.message);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    const { toPublicError } = await import('@/lib/api/errors');
+    const { message } = toPublicError(error, 'Failed to store embedding');
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

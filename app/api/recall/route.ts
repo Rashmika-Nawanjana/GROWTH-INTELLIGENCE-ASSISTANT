@@ -4,24 +4,21 @@ import { recallSimilarTurns } from '@/lib/memory-store';
 
 export const runtime = 'nodejs';
 
-interface RecallBody {
-  sessionId: string;
-  query: string;
-  matchCount?: number;
-}
-
 export async function POST(req: NextRequest) {
-  let body: RecallBody;
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { sessionId, query, matchCount = 5 } = body;
-  if (!sessionId || !query?.trim()) {
-    return NextResponse.json({ error: 'sessionId and query are required' }, { status: 400 });
+  const { recallBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+  const parsed = recallBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
   }
+
+  const { sessionId, query, matchCount } = parsed.data;
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

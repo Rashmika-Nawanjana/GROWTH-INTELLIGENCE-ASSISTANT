@@ -1,23 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import type { UserMemory } from '@/lib/memory';
-import { buildMemoryUpdateFromExchange, upsertUserMemory } from '@/lib/memory-store';
+import { buildMemoryUpdateFromExchange, getUserMemoryServer, upsertUserMemory } from '@/lib/memory-store';
 
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
-    const { sessionId, userQuery, assistantAnswer, existingMemory } = await req.json() as {
-      sessionId: string;
-      userQuery: string;
-      assistantAnswer: string;
-      existingMemory: UserMemory;
-    };
-
-    if (!userQuery?.trim() || !assistantAnswer?.trim()) {
-      return NextResponse.json({ ok: true });
+    let rawBody: unknown;
+    try {
+      rawBody = await req.json();
+    } catch {
+      return NextResponse.json({ ok: false, error: 'Invalid JSON' }, { status: 400 });
     }
+
+    const { memoryBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+    const parsed = memoryBodySchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json({ ok: false, error: formatZodError(parsed.error) }, { status: 400 });
+    }
+
+    const { sessionId, userQuery: rawQuery, assistantAnswer } = parsed.data;
 
     const cookieStore = await cookies();
     const supabase = createServerClient(
@@ -42,8 +45,34 @@ export async function POST(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ ok: false, error: 'unauthenticated' }, { status: 401 });
 
+    const { enforceUserQuotas, guardInput, logGuardrailEvent } = await import('@/lib/guardrails');
+    const quota = await enforceUserQuotas(supabase, user.id, 'memory');
+    if (!quota.allowed) {
+      return NextResponse.json({ ok: true, skipped: 'rate_limited' });
+    }
+
+    const verdict = await guardInput(rawQuery);
+    if (verdict.blocked) {
+      await logGuardrailEvent(supabase, {
+        userId: user.id,
+        route: 'memory',
+        risk: verdict.risk,
+        blocked: true,
+        findings: verdict.findings,
+      });
+      return NextResponse.json({ ok: true, skipped: 'blocked' });
+    }
+
+    // Load existing memory from DB — do not trust client-supplied existingMemory
+    const existingMemory = await getUserMemoryServer(supabase, user.id);
+
     const { update } = await buildMemoryUpdateFromExchange(
-      { sessionId, userQuery, assistantAnswer, existingMemory },
+      {
+        sessionId,
+        userQuery: verdict.redactedText,
+        assistantAnswer,
+        existingMemory,
+      },
       user.id,
     );
     await upsertUserMemory(supabase, update);
@@ -61,7 +90,7 @@ export async function POST(req: NextRequest) {
     ) {
       return NextResponse.json({ ok: true, skipped: 'rate_limited' });
     }
-    console.error('memory route error:', err);
+    console.error('memory route error:', err instanceof Error ? err.message : 'unknown');
     return NextResponse.json({ ok: false }, { status: 500 });
   }
 }

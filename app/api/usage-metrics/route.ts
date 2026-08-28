@@ -34,7 +34,7 @@ export async function GET(req: Request) {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     }
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: 'Database error' }), { status: 500 });
   }
 
   const runs = rows ?? [];

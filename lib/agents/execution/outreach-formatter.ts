@@ -88,7 +88,7 @@ Product: ${product}
 ${competitor ? `Competitor: ${competitor}` : ''}
 
 Outreach best practices:
-${rawContent.join('\n')}
+${(await import('@/lib/guardrails')).fenceUntrusted(rawContent)}
 
 Input variants to enrich:
 ${variantsSummary}

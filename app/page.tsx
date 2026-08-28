@@ -405,6 +405,115 @@ function AgentCard({
   );
 }
 
+/** YouTube-style gray shimmer blocks — layout shells only, no new structure. */
+function Sk({ className = '', style, delay }: { className?: string; style?: React.CSSProperties; delay?: number }) {
+  return (
+    <div
+      className={`skeleton ${className}`}
+      style={{ ...(style ?? {}), ...(delay != null ? { animationDelay: `${delay}s` } : {}) }}
+    />
+  );
+}
+
+function ResultCardsSkeleton({
+  borderC,
+  cardBg,
+  cardBg2,
+  textMuted,
+}: {
+  borderC: string;
+  cardBg: string;
+  cardBg2: string;
+  textMuted: string;
+}) {
+  return (
+    <>
+      {/* Summary card shell */}
+      <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: `1px solid ${borderC}` }}>
+          <div className="flex items-center gap-2">
+            <Sk className="h-3.5 w-3.5 rounded" />
+            <Sk className="h-3 w-36" />
+          </div>
+          <Sk className="h-5 w-40 rounded-full" />
+        </div>
+        <div className="p-6 lg:p-8 flex flex-col gap-4">
+          <Sk className="h-3.5 w-full" />
+          <Sk className="h-3.5 w-11/12" delay={0.1} />
+          <Sk className="h-3.5 w-4/5" delay={0.2} />
+          <Sk className="h-3.5 w-5/6" delay={0.3} />
+          <div className="flex flex-wrap gap-2 mt-2">
+            <Sk className="h-5 w-24 rounded-full" />
+            <Sk className="h-5 w-28 rounded-full" delay={0.1} />
+            <Sk className="h-5 w-20 rounded-full" delay={0.2} />
+          </div>
+          <div className="mt-4">
+            <p className="text-[11px] font-mono font-bold uppercase tracking-widest mb-4" style={{ color: textMuted }}>
+              Domain Highlights
+            </p>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="rounded-xl p-4 flex flex-col gap-3"
+                  style={{ background: cardBg2, border: `1px solid ${borderC}`, borderLeft: `3px solid ${borderC}` }}
+                >
+                  <div className="flex items-center justify-between">
+                    <Sk className="h-3 w-24" delay={i * 0.05} />
+                    <Sk className="h-4 w-12 rounded-full" delay={i * 0.05} />
+                  </div>
+                  <Sk className="h-3 w-full" delay={0.1 + i * 0.05} />
+                  <Sk className="h-3 w-4/5" delay={0.15 + i * 0.05} />
+                  <Sk className="h-3 w-2/3" delay={0.2 + i * 0.05} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="mt-2">
+            <p className="text-[11px] font-mono font-bold uppercase tracking-widest mb-4" style={{ color: textMuted }}>
+              Strategic Recommendations
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="rounded-lg p-4 flex flex-col gap-2.5" style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+                  <div className="flex gap-1.5">
+                    <Sk className="h-4 w-16 rounded" />
+                    <Sk className="h-4 w-12 rounded" delay={0.1} />
+                  </div>
+                  <Sk className="h-3.5 w-3/4" delay={0.1} />
+                  <Sk className="h-3 w-full" delay={0.15} />
+                  <Sk className="h-3 w-5/6" delay={0.2} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-1.5 pt-4" style={{ borderTop: `1px solid ${borderC}` }}>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Sk key={i} className="h-6 w-28 rounded-md" delay={i * 0.05} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Mind map shell */}
+      <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+        <div className="flex items-center gap-2 px-5 py-3.5" style={{ borderBottom: `1px solid ${borderC}` }}>
+          <Sk className="h-3.5 w-3.5 rounded" />
+          <Sk className="h-3 w-24" />
+        </div>
+        <div className="p-4 flex flex-col gap-3">
+          <Sk className="h-48 w-full rounded-lg" />
+          <div className="flex gap-2 justify-center">
+            <Sk className="h-4 w-16 rounded-full" />
+            <Sk className="h-4 w-16 rounded-full" delay={0.1} />
+            <Sk className="h-4 w-16 rounded-full" delay={0.2} />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 /* ─── Main dashboard ─────────────────────────────────────── */
 export default function VeracityDashboard() {
   const router   = useRouter();
@@ -1791,6 +1900,18 @@ export default function VeracityDashboard() {
                       messageId={currentResult?.persistedId ?? null}
                       onRefined={handleExecutionPlanRefined}
                     />
+                  ) : isLoading ? (
+                    <div className="rounded-xl p-6 flex flex-col gap-3" style={{ border: `1px solid ${borderC}`, background: cardBg2 }}>
+                      <Sk className="h-4 w-40" />
+                      <Sk className="h-40 w-full rounded-lg" delay={0.1} />
+                      <Sk className="h-3 w-full" delay={0.15} />
+                      <Sk className="h-3 w-5/6" delay={0.2} />
+                      <Sk className="h-3 w-2/3" delay={0.25} />
+                      <div className="grid grid-cols-2 gap-3 mt-2">
+                        <Sk className="h-16 w-full rounded-lg" delay={0.3} />
+                        <Sk className="h-16 w-full rounded-lg" delay={0.35} />
+                      </div>
+                    </div>
                   ) : (
                     <div className="rounded-xl p-6" style={{ border: `1px solid ${borderC}`, background: cardBg2 }}>
                       <p className="text-sm font-bold mb-2" style={{ color: textMain }}>
@@ -1837,9 +1958,19 @@ export default function VeracityDashboard() {
               </div>
             )}
 
+            {/* ── Result skeletons (YouTube-style) while pipeline runs ── */}
+            {isLoading && !currentResult?.content && (
+              <ResultCardsSkeleton
+                borderC={borderC}
+                cardBg={cardBg}
+                cardBg2={cardBg2}
+                textMuted={textMuted}
+              />
+            )}
+
             {/* ── Summary card ── */}
             {currentResult?.content && (
-              <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+              <div className="rounded-lg overflow-hidden result-reveal" style={{ border: `1px solid ${borderC}`, background: cardBg, animationDelay: '0ms' }}>
                 <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: `1px solid ${borderC}` }}>
                   <div className="flex items-center gap-2">
                     <Layers size={14} style={{ color: '#0070f3' }} />
@@ -1904,7 +2035,7 @@ export default function VeracityDashboard() {
                 </div>
 
                 <div className="p-6 lg:p-8 flex flex-col gap-8">
-                  <p className="prose-answer">{currentResult.content}</p>
+                  <p className="prose-answer result-reveal" style={{ animationDelay: '40ms' }}>{currentResult.content}</p>
 
                   {(() => {
                     const refinement = currentResult.orchestratorOutput?.refinement;
@@ -1968,7 +2099,7 @@ export default function VeracityDashboard() {
                   })()}
 
                   {currentResult.orchestratorOutput?.outputs?.length ? (
-                    <div>
+                    <div className="result-reveal" style={{ animationDelay: '100ms' }}>
                       <p className="text-[11px] font-mono font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: textSubtle }}>
                         <Layers size={13} /> Domain Highlights
                       </p>
@@ -1979,11 +2110,12 @@ export default function VeracityDashboard() {
                           .map((o, i) => {
                             const domainMeta = DOMAIN_META[o.domain as Domain];
                             return (
-                              <div key={`${o.domain}-${i}`} className="rounded-xl p-4 transition-all"
+                              <div key={`${o.domain}-${i}`} className="rounded-xl p-4 transition-all result-reveal"
                                 style={{
                                   background: cardBg2,
                                   border: `1px solid ${borderC}`,
                                   borderLeft: `3px solid ${domainMeta?.color ?? borderC}`,
+                                  animationDelay: `${120 + i * 70}ms`,
                                 }}>
                                 <div className="flex items-center justify-between mb-2.5">
                                   <div className="flex items-center gap-1.5">
@@ -2017,14 +2149,14 @@ export default function VeracityDashboard() {
 
                   {/* Recommendations */}
                   {currentResult.recommendations && currentResult.recommendations.length > 0 && (
-                    <div>
+                    <div className="result-reveal" style={{ animationDelay: '280ms' }}>
                       <p className="text-[11px] font-mono font-bold uppercase tracking-widest mb-4 flex items-center gap-2" style={{ color: textSubtle }}>
                         <Rocket size={13} /> Strategic Recommendations
                       </p>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {currentResult.recommendations.map((rec: any, i: number) => (
-                          <div key={i} className="rounded-lg p-4 flex flex-col gap-2.5"
-                            style={{ background: cardBg2, border: `1px solid ${borderC}` }}>
+                          <div key={i} className="rounded-lg p-4 flex flex-col gap-2.5 result-reveal"
+                            style={{ background: cardBg2, border: `1px solid ${borderC}`, animationDelay: `${300 + i * 70}ms` }}>
                             <div className="flex flex-wrap gap-1.5">
                               <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded uppercase" style={{
                                 color:   rec.priority === 'immediate' ? '#ef4444' : rec.priority === 'short-term' ? '#f59e0b' : '#3b82f6',
@@ -2179,7 +2311,7 @@ export default function VeracityDashboard() {
               const mindMapOutput = currentResult?.orchestratorOutput?.outputs?.find(o => o.artifactType === 'mind-map') as MindMapOutput | undefined;
               if (!mindMapOutput?.branches?.length) return null;
               return (
-                <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${borderC}`, background: cardBg }}>
+                <div className="rounded-lg overflow-hidden result-reveal" style={{ border: `1px solid ${borderC}`, background: cardBg, animationDelay: '420ms' }}>
                   <div className="flex items-center justify-between gap-2 px-5 py-3.5" style={{ borderBottom: `1px solid ${borderC}` }}>
                     <div className="flex items-center gap-2">
                       <GitBranch size={14} style={{ color: '#0070f3' }} />

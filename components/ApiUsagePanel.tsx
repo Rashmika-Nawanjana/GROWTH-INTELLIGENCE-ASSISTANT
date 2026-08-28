@@ -62,6 +62,7 @@ const STAGE_LABELS: Record<UsageStage, string> = {
   refine: 'Refine',
   'steal-strategy': 'Steal strategy',
   'embed-api': 'Embed API',
+  'guardrail-judge': 'Guardrail judge',
 };
 
 function formatUsd(n: number): string {

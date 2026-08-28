@@ -23,16 +23,20 @@ async function getSupabase() {
 }
 
 export async function POST(req: NextRequest) {
-  let body: OutcomeRecordPayload;
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return NextResponse.json({ ok: false, error: 'invalid JSON' }, { status: 400 });
   }
 
-  if (!body?.kind || !body.sessionId) {
-    return NextResponse.json({ ok: false, error: 'missing kind or sessionId' }, { status: 400 });
+  const { feedbackBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+  const parsed = feedbackBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: formatZodError(parsed.error) }, { status: 400 });
   }
+
+  const body = parsed.data as OutcomeRecordPayload;
 
   const supabase = await getSupabase();
   const { data: { user } } = await supabase.auth.getUser();
@@ -44,8 +48,9 @@ export async function POST(req: NextRequest) {
     await recordOutcome(supabase, user.id, body);
     return NextResponse.json({ ok: true });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : 'server error';
-    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+    const { toPublicError } = await import('@/lib/api/errors');
+    const { message } = toPublicError(err, 'Failed to record feedback');
+    return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
 

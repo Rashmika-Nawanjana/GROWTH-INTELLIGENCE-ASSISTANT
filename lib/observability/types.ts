@@ -10,7 +10,8 @@ export type UsageStage =
   | 'workspace-explain'
   | 'refine'
   | 'steal-strategy'
-  | 'embed-api';
+  | 'embed-api'
+  | 'guardrail-judge';
 
 export type EmbeddingPurpose =
   | 'evidence-index'

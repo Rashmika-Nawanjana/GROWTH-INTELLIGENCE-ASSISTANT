@@ -186,7 +186,7 @@ ${geography ? `Geography: ${geography.name}` : ''}
 Evidence status: ${loop.evidence.status}
 
 Raw signals:
-${loop.rawContent.join('\n') || '(no relevant adjacent signals)'}
+${(await import('@/lib/guardrails')).fenceUntrusted(loop.rawContent)}
 
 Produce JSON:
 {

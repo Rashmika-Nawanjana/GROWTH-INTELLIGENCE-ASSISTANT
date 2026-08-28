@@ -31,15 +31,20 @@ export async function POST(req: NextRequest) {
     return jsonError('Not authenticated', 401);
   }
 
-  let body: { itemId?: string };
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return jsonError('Invalid JSON', 400);
   }
 
-  const itemId = (body.itemId ?? '').trim();
-  if (!itemId) return jsonError('itemId is required', 400);
+  const { workspaceIndexBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+  const parsed = workspaceIndexBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return jsonError(formatZodError(parsed.error), 400);
+  }
+
+  const itemId = parsed.data.itemId;
 
   const { data: item, error: itemError } = await supabase
     .from('workspace_items')

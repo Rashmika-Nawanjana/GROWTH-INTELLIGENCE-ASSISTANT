@@ -30,6 +30,13 @@ export async function scrapeWithPlaywright(
   if (!isPlaywrightScrapeEnabled()) return null;
 
   try {
+    const { assertSafeUrl } = await import('@/lib/guardrails');
+    await assertSafeUrl(url);
+  } catch {
+    return null;
+  }
+
+  try {
     const { chromium } = await import('playwright');
     const browser = await chromium.launch({
       headless: true,

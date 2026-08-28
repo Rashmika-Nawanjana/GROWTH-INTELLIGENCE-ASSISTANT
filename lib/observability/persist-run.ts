@@ -26,6 +26,8 @@ export async function persistRunUsage(
     llm_by_stage: metrics.usage?.llm.byStage ?? {},
     trace_id: metrics.traceId ?? null,
     trace_url: metrics.traceUrl ?? null,
+    safety_score: metrics.safetyScore ?? null,
+    guardrail_risk: metrics.guardrailRisk ?? null,
   });
 
   if (error) {

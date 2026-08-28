@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { createClient } from '@/lib/supabase-server';
 import { generateHuggingFaceJson } from '@/lib/agents/gemini';
+import { publicJsonError } from '@/lib/api/errors';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -23,19 +24,50 @@ export async function POST(req: NextRequest) {
     return jsonError('Not authenticated', 401);
   }
 
-  let body: { company?: string; newCompanyContext?: string; market?: string };
+  let rawBody: unknown;
   try {
-    body = await req.json();
+    rawBody = await req.json();
   } catch {
     return jsonError('Invalid JSON', 400);
   }
 
-  const company = (body.company ?? '').trim();
-  if (company.length < 2) {
-    return jsonError('company is required (at least 2 characters)', 400);
+  const { stealStrategyBodySchema, formatZodError } = await import('@/lib/validation/schemas');
+  const parsed = stealStrategyBodySchema.safeParse(rawBody);
+  if (!parsed.success) {
+    return jsonError(formatZodError(parsed.error), 400);
   }
-  const newCo = (body.newCompanyContext ?? '').trim();
-  const market = (body.market ?? '').trim();
+
+  const { enforceUserQuotas, guardInput, logGuardrailEvent, guardOutput } = await import('@/lib/guardrails');
+  const quota = await enforceUserQuotas(supabase, user.id, 'steal-strategy');
+  if (!quota.allowed) {
+    return jsonError(
+      quota.reason === 'spend'
+        ? 'Daily usage limit reached. Try again tomorrow.'
+        : `Rate limit exceeded. Retry in ${quota.retryAfterSeconds ?? 60}s.`,
+      429,
+    );
+  }
+
+  const companyVerdict = await guardInput(parsed.data.company);
+  const contextText = [parsed.data.newCompanyContext, parsed.data.market].filter(Boolean).join('\n');
+  const contextVerdict = contextText ? await guardInput(contextText) : null;
+
+  if (companyVerdict.blocked || contextVerdict?.blocked) {
+    await logGuardrailEvent(supabase, {
+      userId: user.id,
+      route: 'steal-strategy',
+      risk: 'high',
+      blocked: true,
+      findings: [...companyVerdict.findings, ...(contextVerdict?.findings ?? [])],
+    });
+    return jsonError('Request blocked by safety policy.', 400);
+  }
+
+  const company = companyVerdict.redactedText;
+  const newCo = contextVerdict
+    ? (await guardInput(parsed.data.newCompanyContext ?? '')).redactedText
+    : (parsed.data.newCompanyContext ?? '').trim();
+  const market = (parsed.data.market ?? '').trim();
 
   const system = `You are a business strategy analyst. Respond with valid JSON only, no markdown fences.
 This is a case-study style analysis of widely reported business history and competitive strategy — not instructions to break laws, harm competitors, or act unethically.
@@ -56,13 +88,17 @@ Include 3-5 items in each array. Use English.`;
     const data = await generateHuggingFaceJson<StealStrategyResponse>(system, userPrompt, {
       maxNewTokens: 3500,
       temperature: 0.25,
+      stage: 'steal-strategy',
     });
     if (!data.summary || !Array.isArray(data.historicalCompetitiveMoves)) {
       return jsonError('Model returned an incomplete structure', 502);
     }
-    return new Response(JSON.stringify(data), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    const safeSummary = guardOutput(data.summary);
+    return new Response(
+      JSON.stringify({ ...data, summary: safeSummary.safeText }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Strategy generation failed';
-    return jsonError(msg, 500);
+    return publicJsonError(e, 'Strategy generation failed');
   }
 }

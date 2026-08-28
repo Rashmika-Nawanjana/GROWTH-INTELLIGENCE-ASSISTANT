@@ -102,9 +102,15 @@ export async function scrapeTwitterX(
     tweetLanguage: options.language ?? 'en',
   };
 
-  const debugApify = process.env.APIFY_DEBUG === '1' || process.env.NODE_ENV === 'development';
+  const debugApify = process.env.APIFY_DEBUG === '1';
   if (debugApify) {
-    console.log('[apify] starting run', { actor: APIFY_TWITTER_ACTOR_ID, searchTerms, twitterHandles, maxItems, waitSecs });
+    console.log('[apify] starting run', {
+      actor: APIFY_TWITTER_ACTOR_ID,
+      searchTermCount: searchTerms.length,
+      handleCount: twitterHandles.length,
+      maxItems,
+      waitSecs,
+    });
   }
 
   try {

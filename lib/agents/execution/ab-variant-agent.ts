@@ -95,7 +95,7 @@ Product: ${product}
 ${competitor ? `Competitor: ${competitor}` : ''}
 
 Raw signals:
-${rawContent.join('\n')}
+${(await import('@/lib/guardrails')).fenceUntrusted(rawContent)}
 
 Produce a JSON object with this exact shape:
 {
