@@ -17,6 +17,7 @@ export async function orchestrateLangGraph(
   images: ImageAttachment[] = [],
   memoryContext?: string,
   options?: OrchestrateOptions,
+  _supabase?: import('@supabase/supabase-js').SupabaseClient,
 ): Promise<OrchestratorOutput> {
   const graph = buildOrchestratorGraph({
     onAgentUpdate,

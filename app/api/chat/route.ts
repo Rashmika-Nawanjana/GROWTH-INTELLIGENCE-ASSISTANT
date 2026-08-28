@@ -1,4 +1,4 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, after } from 'next/server';
 import {
   runOrchestration,
   runMirofishAgent,
@@ -6,6 +6,7 @@ import {
 } from '../../../lib/agents/orchestrate-entry';
 import { createClient } from '@/lib/supabase-server';
 import { toolGetPastOutcomesForChat } from '@/lib/mcp/memory-tools';
+import { indexRunEvidence, isEvidenceRagEnabled } from '@/lib/evidence';
 import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment, AgentOutput } from '../../../lib/agents/types';
 
 export const runtime = 'nodejs';
@@ -159,11 +160,31 @@ export async function POST(req: NextRequest) {
           followUpMode,
           selectedAgents,
           injectedContext,
+          userId: user.id,
           onOrchestrationLog: (line: string) => write({ type: 'orchestration_log', line }),
         },
+        supabase,
       );
       // Send main result — frontend renders immediately, no need to wait for MiroFish
       write({ type: 'result', output: result });
+
+      if (isEvidenceRagEnabled()) {
+        after(async () => {
+          try {
+            await indexRunEvidence(supabase, {
+              userId: user.id,
+              outputs: result.outputs,
+              classification: {
+                product: result.product,
+                category: undefined,
+                geography: undefined,
+              },
+            });
+          } catch (err) {
+            console.error('[evidence index after]', err instanceof Error ? err.message : err);
+          }
+        });
+      }
 
       // ── MiroFish Synthetic (opt-in): runs AFTER main result ────────────────
       if (includeMirofish) {

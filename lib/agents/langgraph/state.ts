@@ -7,6 +7,7 @@ import type {
   ImageAttachment,
   OrchestratorOutput,
   Recommendation,
+  RetrievedEvidenceHit,
 } from '../types';
 import type { ClassificationResult, OrchestrateOptions } from '../orchestrator';
 import type { ResearchPlan } from '../research-plan';
@@ -39,6 +40,10 @@ export const OrchestratorState = Annotation.Root({
     default: () => false,
   }),
   synthesisMemoryContext: Annotation<string | undefined>,
+  retrievedEvidence: Annotation<RetrievedEvidenceHit[]>({
+    reducer: (_left, right) => right ?? [],
+    default: () => [],
+  }),
   agentRuns: Annotation<AgentRun[]>({
     reducer: (_left, right) => right ?? [],
     default: () => [],

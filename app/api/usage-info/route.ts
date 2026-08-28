@@ -90,6 +90,13 @@ export async function GET() {
     { id: 'apify', label: 'Apify (Twitter/X via Tweet Scraper)', kind: 'tool' as const, configured: boolEnv('APIFY_API_TOKEN'), usageNote: 'Apify console → Usage / per-actor runs.' },
     { id: 'reddit', label: 'Reddit (public JSON)', kind: 'tool' as const, configured: true, usageNote: 'No token required; optional OAuth for higher rate limits.' },
     { id: 'supabase', label: 'Supabase (DB + auth)', kind: 'platform' as const, configured: boolEnv('NEXT_PUBLIC_SUPABASE_URL') && boolEnv('NEXT_PUBLIC_SUPABASE_ANON_KEY'), usageNote: 'Project dashboard for DB and API usage.' },
+    {
+      id: 'evidence-rag',
+      label: 'Evidence RAG (pgvector research library)',
+      kind: 'platform' as const,
+      configured: process.env.EVIDENCE_RAG_ENABLED === 'true' && boolEnv('GEMINI_API_KEY'),
+      usageNote: 'EVIDENCE_RAG_ENABLED=true + migration 007. Indexes scraped pages and agent facts for follow-up recall.',
+    },
   ];
 
   return new Response(

@@ -1,6 +1,9 @@
 /**
  * Evidence sufficiency gate — decides when an agent should report
  * INSUFFICIENT EVIDENCE instead of filling with unrelated material.
+ *
+ * Note: RAG-retrieved evidence is injected into priorContext only and must
+ * never increment relevantSourceCount — live tool sources are the verification layer.
  */
 
 import type {

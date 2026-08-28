@@ -47,6 +47,8 @@ import {
   toolGetPastOutcomes,
   toolRecordRecommendationOutcome,
   toolUpdateUserMemory,
+  toolSearchEvidence,
+  searchEvidenceInputSchema,
 } from '../../lib/mcp/memory-tools';
 
 function requireEnv(name: string): string {
@@ -144,6 +146,18 @@ async function main() {
     },
     async (args) => {
       const result = await toolUpdateUserMemory(toolContext(), args);
+      return jsonContent(result);
+    },
+  );
+
+  server.registerTool(
+    'search_evidence',
+    {
+      description: 'Semantic search over indexed research evidence (scraped pages and agent facts).',
+      inputSchema: searchEvidenceInputSchema,
+    },
+    async (args) => {
+      const result = await toolSearchEvidence(toolContext(), args);
       return jsonContent(result);
     },
   );

@@ -1,4 +1,10 @@
 import { filterAndRankSources } from '@/lib/tools/source-validator';
+import { createClient } from '@/lib/supabase-server';
+import {
+  loadEvidenceForOrchestration,
+  mergeEvidenceIntoAgentContext,
+  mergeEvidenceIntoSynthesisMemory,
+} from '@/lib/evidence/orchestrate-hook';
 import { executionEngineAgent } from '../execution/execution-engine';
 import {
   ALL_AGENTS,
@@ -161,7 +167,19 @@ export function createDiscoverNode(callbacks: OrchestratorCallbacks) {
     callbacks.onAgentUpdate?.(plannerRun);
 
     const entityNames = plan.localEntities.map(e => e.name);
-    const enriched: AgentContext = {
+    const supabase = await createClient();
+    const evidence = await loadEvidenceForOrchestration(supabase, {
+      userId: state.options?.userId,
+      query: state.query,
+      classification: state.classification ?? { product: agentContext.product },
+    });
+    if (evidence.hits.length > 0) {
+      callbacks.onOrchestrationLog?.(
+        `Recalled ${evidence.hits.length} prior evidence chunk(s) from your research library.`,
+      );
+    }
+
+    const enriched: AgentContext = mergeEvidenceIntoAgentContext({
       ...agentContext,
       namedEntities: [...new Set([...(agentContext.namedEntities ?? []), ...entityNames])],
       requiredTerms: [
@@ -174,7 +192,12 @@ export function createDiscoverNode(callbacks: OrchestratorCallbacks) {
       discoveredEntities: plan.localEntities,
       gapQueries: plan.gapQueries,
       planNotes: plan.notes,
-    };
+    }, evidence);
+
+    const synthesisMemoryContext = mergeEvidenceIntoSynthesisMemory(
+      state.synthesisMemoryContext,
+      evidence,
+    );
 
     const agentsToRun = ALL_AGENTS.filter(a => state.agentsToRunIds.includes(a.id));
     const sweepLabel =
@@ -198,6 +221,8 @@ export function createDiscoverNode(callbacks: OrchestratorCallbacks) {
     return {
       researchPlan: plan,
       agentContext: enriched,
+      retrievedEvidence: evidence.hits,
+      synthesisMemoryContext,
       agentRuns,
       agentLatencies: { 'research-planner': Date.now() - start },
       modelCallCount: state.modelCallCount + 1,
@@ -455,6 +480,9 @@ export function createFinalizeNode(callbacks: OrchestratorCallbacks) {
       generatedAt: new Date().toISOString(),
       metrics,
       citations,
+      retrievedEvidence: state.retrievedEvidence?.length
+        ? state.retrievedEvidence
+        : undefined,
     };
 
     return {

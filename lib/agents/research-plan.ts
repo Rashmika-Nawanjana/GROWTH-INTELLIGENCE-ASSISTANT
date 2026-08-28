@@ -11,6 +11,7 @@ import { extractCandidates } from '../tools/candidate-discovery';
 import { generateHuggingFaceJson } from './gemini';
 import { localeFromGeography } from './search-locale';
 import { isPlaceholderCompetitor } from './entity-url';
+import { buildDomainEvidenceBlock, filterHitsForDomain } from '../evidence/retrieve';
 import type {
   AgentContext,
   IntelligenceDomain,
@@ -450,6 +451,17 @@ export function applyPlanToContext(
     plannedQueries: plan.perDomainQueries[domain],
     gapQueries: plan.gapQueries,
     planNotes: plan.notes,
+    retrievedEvidence: ctx.retrievedEvidence
+      ? filterHitsForDomain(ctx.retrievedEvidence, domain)
+      : undefined,
+    priorContext: [
+      ctx.priorContext,
+      ctx.retrievedEvidence?.length
+        ? buildDomainEvidenceBlock(ctx.retrievedEvidence, domain)
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join('\n\n') || ctx.priorContext,
   };
 }
 

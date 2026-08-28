@@ -2058,6 +2058,39 @@ export default function VeracityDashboard() {
                     </div>
                   )}
 
+                  {/* Recalled evidence (RAG) */}
+                  {currentResult.orchestratorOutput?.retrievedEvidence &&
+                    currentResult.orchestratorOutput.retrievedEvidence.length > 0 && (
+                    <div className="flex items-start gap-3 pt-4" style={{ borderTop: `1px solid ${borderC}` }}>
+                      <span className="text-[10px] font-mono font-semibold uppercase tracking-widest shrink-0 mt-1" style={{ color: textSubtle }}>
+                        recalled evidence
+                      </span>
+                      <div className="flex flex-col gap-2 w-full">
+                        <span className="text-[10px] font-mono px-2 py-1 rounded w-fit"
+                          style={{ color: '#6366f1', background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                          {currentResult.orchestratorOutput.retrievedEvidence.length} prior chunk(s) — context only
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {currentResult.orchestratorOutput.retrievedEvidence.slice(0, 6).map(hit => (
+                            <a
+                              key={hit.id}
+                              href={hit.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={hit.content.slice(0, 200)}
+                              className="flex items-center gap-1 text-[11px] font-mono px-2.5 py-1 rounded-md transition-colors max-w-full truncate"
+                              style={{ background: cardBg2, border: `1px solid ${borderC}`, color: textMuted }}
+                            >
+                              {hit.title || hit.url}
+                              <span className="opacity-60">· {hit.ageDays}d</span>
+                              <ArrowUpRight size={9} />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Sources */}
                   {currentResult.sources && currentResult.sources.length > 0 && (
                     <div className="flex items-start gap-3 pt-4" style={{ borderTop: `1px solid ${borderC}` }}>

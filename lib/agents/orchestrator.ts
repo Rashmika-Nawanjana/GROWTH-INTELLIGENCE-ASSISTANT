@@ -9,7 +9,12 @@ import { mirofishAgent } from './mirofish';
 import { mirofishLiveAgent } from './mirofish-live';
 import { detectExecutionIntent } from './execution-intent';
 import { generateHuggingFaceText } from './gemini';
-import { filterAndRankSources } from '@/lib/tools/source-validator';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import {
+  loadEvidenceForOrchestration,
+  mergeEvidenceIntoAgentContext,
+  mergeEvidenceIntoSynthesisMemory,
+} from '../evidence/orchestrate-hook';
 import {
   applyPlanToContext,
   buildResearchPlan,
@@ -41,6 +46,7 @@ import type {
   EvidenceCandidate,
 } from './types';
 import { scoreToLevel } from './types';
+import { filterAndRankSources } from '@/lib/tools/source-validator';
 
 // ── Cost estimation constants ───────────────────────────────────────────────
 // Lightweight model-call estimate used for the UI metrics readout.
@@ -98,6 +104,7 @@ export interface OrchestrateOptions {
   forceExecution?: boolean; // force stage-2 execution even when classifier says false
   followUpMode?: 'full' | 'targeted'; // targeted runs only classifier-selected research domains
   selectedAgents?: string[]; // optional UI-selected domains from client
+  userId?: string; // authenticated user — required for evidence RAG retrieval/indexing
   /** Live status lines for the UI (e.g. “Reasoning…”, “Orchestrating…”). */
   onOrchestrationLog?: (message: string) => void;
 }
@@ -480,6 +487,7 @@ export async function orchestrate(
   images: ImageAttachment[] = [],
   memoryContext?: string,
   options?: OrchestrateOptions,
+  supabase?: SupabaseClient,
 ): Promise<OrchestratorOutput> {
   const orchestrationStart = Date.now();
   const log = options?.onOrchestrationLog;
@@ -507,6 +515,15 @@ export async function orchestrate(
   const synthesisMemoryContext = [memoryContext, options?.injectedContext]
     .filter(Boolean)
     .join('\n\n') || undefined;
+
+  const evidenceContext = await loadEvidenceForOrchestration(supabase, {
+    userId: options?.userId,
+    query,
+    classification,
+  });
+  if (evidenceContext.hits.length > 0) {
+    log?.(`Recalled ${evidenceContext.hits.length} prior evidence chunk(s) from your research library.`);
+  }
 
   const agentContextBase: AgentContext = {
     query: intent,
@@ -560,7 +577,7 @@ export async function orchestrate(
 
   // Merge discovered entities into base context
   const entityNames = plan.localEntities.map(e => e.name);
-  const agentContext: AgentContext = {
+  let agentContext: AgentContext = mergeEvidenceIntoAgentContext({
     ...agentContextBase,
     namedEntities: [...new Set([...(agentContextBase.namedEntities ?? []), ...entityNames])],
     requiredTerms: [
@@ -573,7 +590,12 @@ export async function orchestrate(
     discoveredEntities: plan.localEntities,
     gapQueries: plan.gapQueries,
     planNotes: plan.notes,
-  };
+  }, evidenceContext);
+
+  const synthesisMemoryWithEvidence = mergeEvidenceIntoSynthesisMemory(
+    synthesisMemoryContext,
+    evidenceContext,
+  );
 
   // Step 2: Select research agents.
   // Main queries default to full sweep; follow-ups may run targeted domains.
@@ -732,7 +754,7 @@ export async function orchestrate(
   }
   const citations = buildCitationIndex(outputs);
   const [synthesisResult, mindMapResult] = await Promise.all([
-    synthesize(query, outputs, history, images, synthesisMemoryContext, citations),
+    synthesize(query, outputs, history, images, synthesisMemoryWithEvidence, citations),
     generateMindMap(query, product, outputs),
   ]);
   modelCallCount += 2; // synthesis + mind map
@@ -796,6 +818,7 @@ export async function orchestrate(
     generatedAt: new Date().toISOString(),
     metrics,
     citations: finalCitations,
+    retrievedEvidence: evidenceContext.hits.length > 0 ? evidenceContext.hits : undefined,
   };
 }
 

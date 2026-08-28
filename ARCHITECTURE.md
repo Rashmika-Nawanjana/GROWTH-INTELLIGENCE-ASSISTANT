@@ -546,6 +546,14 @@ Supabase Auth + Next middleware. Chat and expensive APIs require a signed-in use
 
 - `lib/embeddings.ts`, `/api/embed`, `/api/recall` support semantic recall of prior knowledge when needed.
 
+### Evidence RAG (research artifact memory)
+
+- Migration: `supabase/migrations/007_evidence_rag.sql` — `evidence_documents` + `evidence_chunks` (pgvector 768).
+- **Write path:** after each chat turn, `indexRunEvidence()` (via `after()` in `/api/chat`) chunks scraped pages from `signal_cache` and agent `facts[]`, embeds, and upserts per user.
+- **Read path:** before agent fan-out, `retrieveEvidenceWithTimeout()` injects domain-scoped prior evidence into `AgentContext.retrievedEvidence` / `priorContext`. Synthesis gets the full block via `synthesisMemoryContext`.
+- **Guardrail:** retrieved evidence is labeled *context only* and never increments `relevantSourceCount` in the evidence gate — live tools remain the verification layer.
+- **Flag:** `EVIDENCE_RAG_ENABLED=true` (+ `GEMINI_API_KEY` for embeddings). MCP tool: `search_evidence`.
+
 ---
 
 ## 17. Feedback → refine closed loop

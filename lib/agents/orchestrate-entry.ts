@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type {
   AgentRun,
   ConversationMessage,
@@ -24,6 +25,7 @@ export async function runOrchestration(
   images: ImageAttachment[] = [],
   memoryContext?: string,
   options?: OrchestrateOptions,
+  supabase?: SupabaseClient,
 ): Promise<OrchestratorOutput> {
   if (getOrchestratorBackend() === 'langgraph') {
     const { orchestrateLangGraph } = await import('./langgraph/orchestrate');
@@ -34,10 +36,11 @@ export async function runOrchestration(
       images,
       memoryContext,
       options,
+      supabase,
     );
   }
 
-  return orchestrate(query, history, onAgentUpdate, images, memoryContext, options);
+  return orchestrate(query, history, onAgentUpdate, images, memoryContext, options, supabase);
 }
 
 // Re-export MiroFish runners from the legacy module so routes can import one place.

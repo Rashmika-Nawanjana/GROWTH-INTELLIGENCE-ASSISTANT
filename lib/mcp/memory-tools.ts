@@ -8,6 +8,8 @@ import {
   recordOutcome,
   updateUserMemoryFromExchange,
 } from '@/lib/memory-store';
+import { retrieveEvidenceWithTimeout } from '@/lib/evidence/retrieve';
+import { isEvidenceRagEnabled } from '@/lib/evidence/config';
 import type { OutcomeRecordPayload } from '@/lib/memory-store';
 import type { UserMemory } from '@/lib/memory';
 
@@ -93,6 +95,13 @@ export const updateUserMemoryInputSchema = z.object({
   }),
 });
 
+export const searchEvidenceInputSchema = z.object({
+  query: z.string().min(1),
+  product: z.string().optional(),
+  domain: z.string().optional(),
+  matchCount: z.number().int().min(1).max(20).optional(),
+});
+
 export type MemoryToolContext = {
   supabase: SupabaseClient;
   userId: string;
@@ -164,6 +173,23 @@ export async function toolUpdateUserMemory(
   return { ok: true as const };
 }
 
+export async function toolSearchEvidence(
+  ctx: MemoryToolContext,
+  input: z.infer<typeof searchEvidenceInputSchema>,
+) {
+  if (!isEvidenceRagEnabled()) {
+    return { hits: [], contextBlock: '', enabled: false };
+  }
+  const parsed = searchEvidenceInputSchema.parse(input);
+  return retrieveEvidenceWithTimeout(ctx.supabase, {
+    userId: ctx.userId,
+    query: parsed.query,
+    product: parsed.product,
+    domain: parsed.domain,
+    matchCount: parsed.matchCount,
+  });
+}
+
 export const MEMORY_TOOL_DEFINITIONS = [
   {
     name: 'get_user_memory',
@@ -194,5 +220,11 @@ export const MEMORY_TOOL_DEFINITIONS = [
     description: 'Extract and merge durable user facts from a query/answer exchange into persistent memory.',
     inputSchema: updateUserMemoryInputSchema,
     handler: toolUpdateUserMemory,
+  },
+  {
+    name: 'search_evidence',
+    description: 'Semantic search over indexed research evidence (scraped pages and agent facts). Context only — not live verification.',
+    inputSchema: searchEvidenceInputSchema,
+    handler: toolSearchEvidence,
   },
 ] as const;
