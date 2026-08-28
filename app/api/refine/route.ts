@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { runOrchestration } from '@/lib/agents/orchestrate-entry';
-import { buildFeedbackSummary, buildRefinementDeltas } from '@/lib/agents/refine-utils';
+import { buildRefinementDeltas } from '@/lib/agents/refine-utils';
+import { getPastOutcomes } from '@/lib/memory-store';
 import type {
   ConversationMessage,
   ExecutionPlanOutput,
@@ -95,24 +96,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  // 2. Pull all session feedback in parallel
-  const [feedbackRes, actionsRes, resultsRes] = await Promise.all([
-    supabase.from('recommendation_feedback').select('*').eq('session_id', body.sessionId).order('created_at', { ascending: false }).limit(30),
-    supabase.from('recommendation_actions').select('*').eq('session_id', body.sessionId).order('created_at', { ascending: false }).limit(30),
-    supabase.from('variant_results').select('*').eq('session_id', body.sessionId).order('created_at', { ascending: false }).limit(30),
-  ]);
+  // 2. Pull all session feedback via shared memory store
+  const pastOutcomes = await getPastOutcomes(supabase, {
+    sessionId: body.sessionId,
+    scope: 'session',
+    limit: 30,
+    focus: body.focus,
+    userId: user.id,
+  });
 
-  const feedbackSummary = buildFeedbackSummary(
-    feedbackRes.data ?? [],
-    actionsRes.data ?? [],
-    resultsRes.data ?? [],
-    body.focus,
-  );
+  const feedbackSummary = pastOutcomes.summaryBlock;
 
   const feedbackApplied: FeedbackAppliedCounts = {
-    recommendationFeedback: feedbackRes.data?.length ?? 0,
-    recommendationActions: actionsRes.data?.length ?? 0,
-    variantResults: resultsRes.data?.length ?? 0,
+    recommendationFeedback: pastOutcomes.feedback.length,
+    recommendationActions: pastOutcomes.actions.length,
+    variantResults: pastOutcomes.variantResults.length,
   };
 
   // 3. Rebuild history up to the message being refined and re-run full orchestration.

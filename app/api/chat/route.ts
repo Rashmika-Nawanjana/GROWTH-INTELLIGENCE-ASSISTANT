@@ -5,6 +5,7 @@ import {
   runMirofishLiveAgent,
 } from '../../../lib/agents/orchestrate-entry';
 import { createClient } from '@/lib/supabase-server';
+import { toolGetPastOutcomesForChat } from '@/lib/mcp/memory-tools';
 import type { ConversationMessage, AgentRun, OrchestratorOutput, ImageAttachment, AgentOutput } from '../../../lib/agents/types';
 
 export const runtime = 'nodejs';
@@ -63,6 +64,7 @@ export async function POST(req: NextRequest) {
     history: ConversationMessage[];
     images?: ImageAttachment[];
     memoryContext?: string;
+    sessionId?: string;
     includeMirofish?: boolean;
     includeMirofishLive?: boolean;
     followUpMode?: 'full' | 'targeted';
@@ -75,7 +77,7 @@ export async function POST(req: NextRequest) {
     return jsonError('Invalid JSON body', 400);
   }
 
-  const { query, history = [], images = [], memoryContext, includeMirofish = false, includeMirofishLive = false, followUpMode = 'full', selectedAgents = [] } = body;
+  const { query, history = [], images = [], memoryContext, sessionId, includeMirofish = false, includeMirofishLive = false, followUpMode = 'full', selectedAgents = [] } = body;
 
   if (!query?.trim()) {
     return jsonError('query is required', 400);
@@ -130,6 +132,19 @@ export async function POST(req: NextRequest) {
   (async () => {
     try {
       write({ type: 'orchestration_log', line: 'Starting orchestration…' });
+
+      let injectedContext: string | undefined;
+      if (sessionId) {
+        const outcomes = await toolGetPastOutcomesForChat(
+          { supabase, userId: user.id },
+          sessionId,
+        );
+        if (outcomes.summaryBlock.trim()) {
+          injectedContext = outcomes.summaryBlock;
+          write({ type: 'orchestration_log', line: 'Loaded prior feedback and variant outcomes for this session.' });
+        }
+      }
+
       // ── Stage 1+2: 6 research agents (+ execution engine if needed) ────────
       const result = await runOrchestration(
         query,
@@ -143,6 +158,7 @@ export async function POST(req: NextRequest) {
         {
           followUpMode,
           selectedAgents,
+          injectedContext,
           onOrchestrationLog: (line: string) => write({ type: 'orchestration_log', line }),
         },
       );

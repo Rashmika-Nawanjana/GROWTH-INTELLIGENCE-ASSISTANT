@@ -3,6 +3,10 @@
     "playwright": {
       "command": "npx",
       "args": ["@playwright/mcp@latest"]
+    },
+    "veracity-memory": {
+      "command": "npx",
+      "args": ["tsx", "mcp-servers/veracity-memory/index.ts"]
     }
   }
 }
